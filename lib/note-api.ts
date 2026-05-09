@@ -1,9 +1,5 @@
-import {
-  fetchCreatorByHtml,
-  searchHashtagByHtml,
-  searchNotesByHtml,
-  searchUsersByHtml,
-} from '@/lib/note-html'
+import { fetchCreatorByHtml } from '@/lib/note-html'
+import { googleSearch, urlnamesFromGoogle } from '@/lib/google-search'
 
 const SLEEP_MS = 600
 
@@ -29,48 +25,38 @@ function excerpt(text: string | undefined, n = 400): string {
 }
 
 export async function searchCreators(keyword: string, max: number, diag: SearchDiagnostics): Promise<string[]> {
-  diag.attempted_urls.push(`https://note.com/search?context=user&q=${encodeURIComponent(keyword)}`)
-  const f = await searchUsersByHtml(keyword)
-  if (!f.ok) {
-    diag.errors.push(`searchCreators html: ${f.error || 'unknown'}`)
-    return []
-  }
-  if (f.result) {
-    diag.response_summaries.push(`html users: ${f.result.raw_summary}`)
-    diag.html_previews.push(`users: ${f.result.html_preview}`)
-    diag.nuxt_previews.push(`users __NUXT__ head: ${f.result.nuxt_preview}`)
-  }
-  return (f.result?.urlnames || []).slice(0, max)
+  // プロフィール検索: 記事もプロフィールも含めて取得して urlname を拾う
+  const query = `site:note.com ${keyword}`
+  const g = await googleSearch(query, max * 3) // 重複を見越して多めに
+  diag.attempted_urls.push(`google: ${query}`)
+  diag.response_summaries.push(`google results=${g.results.length} errors=${g.errors.length}`)
+  for (const e of g.errors) diag.errors.push(e)
+  return urlnamesFromGoogle(g.results).slice(0, max)
 }
 
 export async function searchNotes(keyword: string, max: number, diag: SearchDiagnostics) {
-  diag.attempted_urls.push(`https://note.com/search?context=note&q=${encodeURIComponent(keyword)}`)
-  const f = await searchNotesByHtml(keyword)
-  if (!f.ok) {
-    diag.errors.push(`searchNotes html: ${f.error || 'unknown'}`)
-    return [] as { urlname: string; key: string }[]
-  }
-  if (f.result) {
-    diag.response_summaries.push(`html notes: ${f.result.raw_summary}`)
-    diag.html_previews.push(`notes: ${f.result.html_preview}`)
-    diag.nuxt_previews.push(`notes __NUXT__ head: ${f.result.nuxt_preview}`)
-  }
-  return (f.result?.notes || []).slice(0, max)
+  // 投稿本文検索: 記事 URL (/n/) に限定
+  const query = `site:note.com ${keyword} inurl:/n/`
+  const g = await googleSearch(query, max * 3)
+  diag.attempted_urls.push(`google: ${query}`)
+  diag.response_summaries.push(`google notes results=${g.results.length} errors=${g.errors.length}`)
+  for (const e of g.errors) diag.errors.push(e)
+  return g.results.slice(0, max).map((r) => {
+    const m = /^https?:\/\/(?:www\.)?note\.com\/([A-Za-z0-9_\-]+)\/n\/([A-Za-z0-9]+)/.exec(r.link || '')
+    return m ? { urlname: m[1], key: m[2] } : { urlname: '', key: '' }
+  }).filter((n) => n.urlname)
 }
 
 export async function searchHashtag(tag: string, max: number, diag: SearchDiagnostics) {
-  diag.attempted_urls.push(`https://note.com/hashtag/${encodeURIComponent(tag)}`)
-  const f = await searchHashtagByHtml(tag)
-  if (!f.ok) {
-    diag.errors.push(`searchHashtag html: ${f.error || 'unknown'}`)
-    return [] as { urlname: string; key: string }[]
-  }
-  if (f.result) {
-    diag.response_summaries.push(`html tag: ${f.result.raw_summary}`)
-    diag.html_previews.push(`tag: ${f.result.html_preview}`)
-    diag.nuxt_previews.push(`tag __NUXT__ head: ${f.result.nuxt_preview}`)
-  }
-  return (f.result?.notes || []).slice(0, max)
+  const query = `site:note.com/hashtag/${tag} OR site:note.com "${tag}"`
+  const g = await googleSearch(query, max * 3)
+  diag.attempted_urls.push(`google: ${query}`)
+  diag.response_summaries.push(`google tag results=${g.results.length} errors=${g.errors.length}`)
+  for (const e of g.errors) diag.errors.push(e)
+  return g.results.slice(0, max).map((r) => {
+    const m = /^https?:\/\/(?:www\.)?note\.com\/([A-Za-z0-9_\-]+)\/n\/([A-Za-z0-9]+)/.exec(r.link || '')
+    return m ? { urlname: m[1], key: m[2] } : { urlname: '', key: '' }
+  }).filter((n) => n.urlname)
 }
 
 export function urlnamesFromNotes(notes: { urlname: string; key: string }[]): string[] {
