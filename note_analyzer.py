@@ -15,13 +15,12 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
 import re
 import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import Iterable
 from urllib.parse import quote
 
 import requests
@@ -54,7 +53,6 @@ class CreatorRow:
     bottom_post_url: str
     bottom_post_likes: int
     bottom_post_excerpt: str
-    perplexity_summary: str = ""
 
 
 def http_get(url: str, params: dict | None = None, retries: int = 4) -> dict | None:
@@ -221,7 +219,7 @@ def note_url(note: dict, urlname: str | None = None) -> str:
     return ""
 
 
-def analyze_creator(urlname: str, days: int, perplexity_key: str | None) -> CreatorRow | None:
+def analyze_creator(urlname: str, days: int) -> CreatorRow | None:
     profile = fetch_creator(urlname)
     if not profile:
         return None
@@ -267,10 +265,6 @@ def analyze_creator(urlname: str, days: int, perplexity_key: str | None) -> Crea
     top_t, top_u, top_l, top_e = fields(top_note)
     bot_t, bot_u, bot_l, bot_e = fields(bottom_note)
 
-    summary = ""
-    if perplexity_key and recent:
-        summary = perplexity_summary(perplexity_key, nickname, recent[:10])
-
     return CreatorRow(
         urlname=urlname,
         nickname=nickname,
@@ -291,37 +285,7 @@ def analyze_creator(urlname: str, days: int, perplexity_key: str | None) -> Crea
         bottom_post_url=bot_u,
         bottom_post_likes=bot_l,
         bottom_post_excerpt=bot_e,
-        perplexity_summary=summary,
     )
-
-
-def perplexity_summary(api_key: str, nickname: str, notes: list[dict]) -> str:
-    titles = "\n".join(
-        f"- {(n.get('name') or n.get('title') or '').strip()}: {(n.get('description') or '')[:120]}"
-        for n in notes
-    )
-    prompt = (
-        f"以下はnote.comクリエイター『{nickname}』の最近の投稿一覧です。"
-        "投稿内容に共通する特徴やテーマを3点、日本語の箇条書きで簡潔に述べてください。\n\n"
-        f"{titles}"
-    )
-    try:
-        r = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": "sonar",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 400,
-            },
-            timeout=30,
-        )
-        r.raise_for_status()
-        data = r.json()
-        return data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"[warn] perplexity failed: {e}", file=sys.stderr)
-        return ""
 
 
 def write_csv(path: str, rows: Iterable[CreatorRow]) -> None:
@@ -394,11 +358,10 @@ def cmd_tag(args: argparse.Namespace) -> list[CreatorRow]:
 
 
 def analyze_many(urlnames: list[str], args: argparse.Namespace) -> list[CreatorRow]:
-    key = os.environ.get("PERPLEXITY_API_KEY") if args.perplexity else None
     rows: list[CreatorRow] = []
     for i, u in enumerate(urlnames, 1):
         print(f"[{i}/{len(urlnames)}] {u}", file=sys.stderr)
-        row = analyze_creator(u, args.days, key)
+        row = analyze_creator(u, args.days)
         if row:
             rows.append(row)
         time.sleep(DEFAULT_SLEEP)
@@ -410,8 +373,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--days", type=int, default=DEFAULT_DAYS, help="analysis window in days")
     p.add_argument("--max", type=int, default=30, help="max creators to analyze")
     p.add_argument("--out", default="note_analysis.csv", help="output CSV path")
-    p.add_argument("--perplexity", action="store_true",
-                   help="enrich with Perplexity summary (requires PERPLEXITY_API_KEY)")
     sub = p.add_subparsers(dest="mode", required=True)
     for mode in ("user", "note", "tag"):
         s = sub.add_parser(mode)

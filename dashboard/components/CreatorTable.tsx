@@ -22,7 +22,6 @@ export type CreatorRow = {
   bottom_post_url: string;
   bottom_post_likes: number;
   bottom_post_excerpt: string;
-  perplexity_summary?: string;
 };
 
 type SortKey =

@@ -22,10 +22,6 @@ python note_analyzer.py note "ブログ運営" --max 50 --out authors.csv
 
 # ハッシュタグ検索
 python note_analyzer.py tag "投資" --max 200 --out tag_invest.csv
-
-# Perplexity でテーマ要約 (任意)
-export PERPLEXITY_API_KEY=pplx-xxxxxxxx
-python note_analyzer.py user "副業" --max 20 --perplexity --out users.csv
 ```
 
 ### 主な仕様
