@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 import type { CreatorRow } from '@/lib/analytics/types'
 import { rankRows, RANKING_WEIGHTS_LABEL } from '@/lib/ranking'
 
-type Mode = 'urlnames' | 'user' | 'note' | 'tag'
+type Mode = 'user' | 'note' | 'tag' | 'urlnames'
 
 type Diagnostics = {
   matched_urlnames: number
@@ -18,10 +18,10 @@ type Diagnostics = {
 }
 
 const MODE_LABELS: Record<Mode, string> = {
+  user: 'プロフィール検索 (Google経由)',
+  note: '投稿本文検索 (Google経由)',
+  tag: 'ハッシュタグ (Google経由)',
   urlnames: 'urlname を直接入力',
-  user: 'プロフィール検索 (検索 API ブロック中)',
-  note: '投稿本文検索 (検索 API ブロック中)',
-  tag: 'ハッシュタグ',
 }
 
 const NUMERIC_FIELDS: (keyof CreatorRow)[] = [
@@ -82,7 +82,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 export default function AnalyticsPage() {
-  const [mode, setMode] = useState<Mode>('urlnames')
+  const [mode, setMode] = useState<Mode>('user')
   const [keyword, setKeyword] = useState('')
   const [urlnamesInput, setUrlnamesInput] = useState('')
   const [max, setMax] = useState(10)
@@ -150,7 +150,7 @@ export default function AnalyticsPage() {
         const errs = j.diagnostics?.errors || []
         setError(
           errs.length
-            ? `note.com からデータを取得できませんでした: ${errs[0]}`
+            ? `データを取得できませんでした: ${errs[0]}`
             : '該当するクリエイターが見つかりませんでした。',
         )
       }
@@ -186,7 +186,7 @@ export default function AnalyticsPage() {
   function resetFilters() {
     setKeyword('')
     setUrlnamesInput('')
-    setMode('urlnames')
+    setMode('user')
     setMax(10)
     setDays(90)
     setQuery('')
@@ -209,7 +209,7 @@ export default function AnalyticsPage() {
           <p className="text-xs tracking-widest text-[#6b6b6b]">NOTE ANALYTICS</p>
           <h1 className="mt-1 text-2xl font-bold">note クリエイター分析ダッシュボード</h1>
           <p className="mt-1 text-sm text-[#6b6b6b]">
-            note.com の公開ページを SSR スクレイピングしてアカウント・投稿を集計します。
+            Google 検索で note.com 上の URL を取得 → 個人ページをスクレイピングして集計します。
           </p>
         </div>
       </header>
@@ -220,7 +220,7 @@ export default function AnalyticsPage() {
             <div>
               <h2 className="text-base font-bold">検索条件</h2>
               <p className="text-xs text-[#6b6b6b]">
-                現在 note.com のキーワード検索 API は外部サーバーからブロックされているため、デフォルトで「urlname を直接入力」モードを使うことを推奨します。
+                キーワード検索を使うには Vercel の環境変数に GOOGLE_API_KEY と GOOGLE_CSE_ID を設定してください。未設定の場合は「urlname を直接入力」モードをご利用ください。
               </p>
             </div>
             <button
@@ -246,12 +246,12 @@ export default function AnalyticsPage() {
               </div>
 
               {mode === 'urlnames' ? (
-                <div className="grid gap-4 md:grid-cols-[1fr_140px_auto]">
-                  <label className="block text-sm md:col-span-3">
+                <div className="grid gap-4 md:grid-cols-[1fr_140px_140px_auto]">
+                  <label className="block text-sm md:col-span-4">
                     <span className="text-xs text-[#6b6b6b]">urlname リスト（改行・カンマ・スペース区切り / @ や https://note.com/ は除去されます）</span>
                     <textarea
-                      placeholder={'例:\nyu_shiro_h\nshirokuro3215\nlush_whale7372\npure_rose25253'}
-                      rows={5}
+                      placeholder={'例:\nyu_shiro_h\nshirokuro3215\nlush_whale7372'}
+                      rows={4}
                       value={urlnamesInput}
                       onChange={(e) => setUrlnamesInput(e.target.value)}
                       className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c] font-mono"
@@ -293,7 +293,7 @@ export default function AnalyticsPage() {
                     <span className="text-xs text-[#6b6b6b]">キーワード</span>
                     <input
                       type="text"
-                      placeholder="例: 副業 / 投資 / 子育て"
+                      placeholder="例: 副業 / 投資 / 子育て / 採用"
                       value={keyword}
                       onChange={(e) => setKeyword(e.target.value)}
                       className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
@@ -343,6 +343,16 @@ export default function AnalyticsPage() {
                     <li>分析できたロウ: {diag.analyzed_rows}</li>
                     {diag.sample_url && <li className="break-all">サンプルURL: {diag.sample_url}</li>}
                   </ul>
+                  {diag.response_summaries.length > 0 && (
+                    <div>
+                      <p>レスポンス:</p>
+                      <ul className="ml-3 list-disc">
+                        {diag.response_summaries.map((s, i) => (
+                          <li key={i} className="break-all">{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {diag.errors.length > 0 && (
                     <div>
                       <p>エラー:</p>
@@ -484,7 +494,7 @@ export default function AnalyticsPage() {
         )}
 
         {!summary && !error && (
-          <p className="text-center text-sm text-[#6b6b6b]">urlname を入力して「分析を実行」を押してください。</p>
+          <p className="text-center text-sm text-[#6b6b6b]">キーワードを入力して「分析を実行」を押してください。</p>
         )}
       </main>
     </div>
