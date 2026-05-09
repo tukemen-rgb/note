@@ -13,11 +13,22 @@ export interface CreatorRow {
   top_post_title: string
   top_post_url: string
   top_post_likes: number
+  top_post_estimated_views_low: number
+  top_post_estimated_views: number
+  top_post_estimated_views_high: number
   top_post_excerpt: string
   bottom_post_title: string
   bottom_post_url: string
   bottom_post_likes: number
+  bottom_post_estimated_views_low: number
+  bottom_post_estimated_views: number
+  bottom_post_estimated_views_high: number
   bottom_post_excerpt: string
+}
+
+export interface RankedRow extends CreatorRow {
+  rank: number
+  composite_score: number
 }
 
 export interface AuthState {
