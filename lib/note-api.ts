@@ -19,7 +19,10 @@ function browserHeaders() {
   }
 }
 
-async function fetchJson<T = unknown>(url: string, retries = 2): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
+async function fetchJson<T = unknown>(
+  url: string,
+  retries = 2,
+): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
   let backoff = 1500
   for (let i = 0; i <= retries; i++) {
     try {
@@ -38,7 +41,7 @@ async function fetchJson<T = unknown>(url: string, retries = 2): Promise<{ ok: b
       try {
         const data = (await r.json()) as T
         return { ok: true, status: r.status, data }
-      } catch (e) {
+      } catch {
         return { ok: false, status: r.status, data: null, error: 'invalid json' }
       }
     } catch (e: any) {
@@ -60,12 +63,21 @@ function getValue<T = any>(obj: AnyDict | null | undefined, ...keys: string[]): 
   return undefined
 }
 
-function listFromData<T = AnyDict>(payload: AnyDict | null, key: string): T[] {
+// note.com API はバージョンによりレスポンス形式が違うため、複数のパターンを試行する。
+function extractList<T = AnyDict>(payload: AnyDict | null, key: string): T[] {
   if (!payload) return []
-  const inData = payload?.data?.[key]
-  if (Array.isArray(inData)) return inData as T[]
-  const flat = payload[key]
-  return Array.isArray(flat) ? (flat as T[]) : []
+  const candidates: any[] = [
+    payload?.data?.[key],
+    payload?.data?.[key]?.contents,
+    payload?.[key],
+    payload?.[key]?.contents,
+    payload?.data?.contents,
+    payload?.contents,
+  ]
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c as T[]
+  }
+  return []
 }
 
 function noteUrl(note: AnyDict, urlname?: string): string {
@@ -90,25 +102,86 @@ function parseDate(value: string | undefined | null): Date | null {
 export interface SearchDiagnostics {
   attempted_urls: string[]
   errors: string[]
+  response_summaries: string[]
 }
 
-export async function searchCreators(
-  keyword: string,
-  max: number,
-  diag: SearchDiagnostics,
-): Promise<string[]> {
+function summarize(payload: AnyDict | null): string {
+  if (!payload) return 'null'
+  try {
+    const topKeys = Object.keys(payload).slice(0, 8).join(',')
+    const dataKeys = payload.data && typeof payload.data === 'object' ? Object.keys(payload.data).slice(0, 8).join(',') : ''
+    return `top=[${topKeys}] data=[${dataKeys}]`
+  } catch {
+    return 'unknown'
+  }
+}
+
+async function trySearchUsers(keyword: string, page: number, diag: SearchDiagnostics) {
+  const urls = [
+    `${NOTE_BASE}/api/v3/searches?context=user&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
+    `${NOTE_BASE}/api/v2/searches?context=user&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
+  ]
+  for (const url of urls) {
+    diag.attempted_urls.push(url)
+    const res = await fetchJson<AnyDict>(url)
+    if (res.ok && res.data) {
+      diag.response_summaries.push(`users page=${page}: ${summarize(res.data)}`)
+      const users = extractList(res.data, 'users')
+      if (users.length) return users
+    } else if (res.error) {
+      diag.errors.push(`searchUsers page=${page}: ${res.error}`)
+    }
+    await sleep(200)
+  }
+  return [] as AnyDict[]
+}
+
+async function trySearchNotes(keyword: string, page: number, diag: SearchDiagnostics) {
+  const urls = [
+    `${NOTE_BASE}/api/v3/searches?context=note&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
+    `${NOTE_BASE}/api/v2/searches?context=note&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
+  ]
+  for (const url of urls) {
+    diag.attempted_urls.push(url)
+    const res = await fetchJson<AnyDict>(url)
+    if (res.ok && res.data) {
+      diag.response_summaries.push(`notes page=${page}: ${summarize(res.data)}`)
+      const items = extractList(res.data, 'notes')
+      if (items.length) return items
+    } else if (res.error) {
+      diag.errors.push(`searchNotes page=${page}: ${res.error}`)
+    }
+    await sleep(200)
+  }
+  return [] as AnyDict[]
+}
+
+async function trySearchHashtag(tag: string, page: number, diag: SearchDiagnostics) {
+  const urls = [
+    `${NOTE_BASE}/api/v3/hashtags/${encodeURIComponent(tag)}/notes?page=${page}&size=20`,
+    `${NOTE_BASE}/api/v2/hashtags/${encodeURIComponent(tag)}/notes?page=${page}&size=20`,
+  ]
+  for (const url of urls) {
+    diag.attempted_urls.push(url)
+    const res = await fetchJson<AnyDict>(url)
+    if (res.ok && res.data) {
+      diag.response_summaries.push(`tag page=${page}: ${summarize(res.data)}`)
+      const items = extractList(res.data, 'notes')
+      if (items.length) return items
+    } else if (res.error) {
+      diag.errors.push(`searchHashtag page=${page}: ${res.error}`)
+    }
+    await sleep(200)
+  }
+  return [] as AnyDict[]
+}
+
+export async function searchCreators(keyword: string, max: number, diag: SearchDiagnostics): Promise<string[]> {
   const out: string[] = []
   const seen = new Set<string>()
   let page = 1
   while (out.length < max && page <= 5) {
-    const url = `${NOTE_BASE}/api/v2/searches?context=user&q=${encodeURIComponent(keyword)}&page=${page}&size=20`
-    diag.attempted_urls.push(url)
-    const result = await fetchJson<AnyDict>(url)
-    if (!result.ok) {
-      if (result.error) diag.errors.push(`searchCreators page=${page}: ${result.error}`)
-      break
-    }
-    const users = listFromData<AnyDict>(result.data, 'users')
+    const users = await trySearchUsers(keyword, page, diag)
     if (!users.length) break
     for (const u of users) {
       const urlname = getValue<string>(u, 'urlname', 'url_name') || getValue<string>(u?.user || {}, 'urlname')
@@ -129,14 +202,7 @@ export async function searchNotes(keyword: string, max: number, diag: SearchDiag
   const out: AnyDict[] = []
   let page = 1
   while (out.length < max && page <= 5) {
-    const url = `${NOTE_BASE}/api/v2/searches?context=note&q=${encodeURIComponent(keyword)}&page=${page}&size=20`
-    diag.attempted_urls.push(url)
-    const result = await fetchJson<AnyDict>(url)
-    if (!result.ok) {
-      if (result.error) diag.errors.push(`searchNotes page=${page}: ${result.error}`)
-      break
-    }
-    const items = listFromData<AnyDict>(result.data, 'notes')
+    const items = await trySearchNotes(keyword, page, diag)
     if (!items.length) break
     out.push(...items)
     if (items.length < 20) break
@@ -150,14 +216,7 @@ export async function searchHashtag(tag: string, max: number, diag: SearchDiagno
   const out: AnyDict[] = []
   let page = 1
   while (out.length < max && page <= 5) {
-    const url = `${NOTE_BASE}/api/v2/hashtags/${encodeURIComponent(tag)}/notes?page=${page}&size=20`
-    diag.attempted_urls.push(url)
-    const result = await fetchJson<AnyDict>(url)
-    if (!result.ok) {
-      if (result.error) diag.errors.push(`searchHashtag page=${page}: ${result.error}`)
-      break
-    }
-    const items = listFromData<AnyDict>(result.data, 'notes')
+    const items = await trySearchHashtag(tag, page, diag)
     if (!items.length) break
     out.push(...items)
     if (items.length < 20) break
@@ -181,24 +240,38 @@ export function urlnamesFromNotes(notes: AnyDict[]): string[] {
 }
 
 async function fetchCreator(urlname: string, diag: SearchDiagnostics): Promise<AnyDict | null> {
-  const url = `${NOTE_BASE}/api/v2/creators/${urlname}`
-  diag.attempted_urls.push(url)
-  const result = await fetchJson<AnyDict>(url)
-  if (!result.ok && result.error) diag.errors.push(`fetchCreator ${urlname}: ${result.error}`)
-  return result.data
+  const urls = [
+    `${NOTE_BASE}/api/v2/creators/${urlname}`,
+    `${NOTE_BASE}/api/v1/creators/${urlname}`,
+  ]
+  for (const url of urls) {
+    diag.attempted_urls.push(url)
+    const res = await fetchJson<AnyDict>(url)
+    if (res.ok && res.data) return res.data
+    if (res.error) diag.errors.push(`fetchCreator ${urlname}: ${res.error}`)
+  }
+  return null
 }
 
 async function fetchCreatorNotes(urlname: string, diag: SearchDiagnostics, maxPages = 3): Promise<AnyDict[]> {
   const out: AnyDict[] = []
   for (let page = 1; page <= maxPages; page++) {
-    const url = `${NOTE_BASE}/api/v2/creators/${urlname}/contents?kind=note&page=${page}`
-    diag.attempted_urls.push(url)
-    const result = await fetchJson<AnyDict>(url)
-    if (!result.ok) {
-      if (result.error) diag.errors.push(`fetchCreatorNotes ${urlname} page=${page}: ${result.error}`)
-      break
+    const urls = [
+      `${NOTE_BASE}/api/v2/creators/${urlname}/contents?kind=note&page=${page}`,
+      `${NOTE_BASE}/api/v1/creators/${urlname}/notes?page=${page}`,
+    ]
+    let items: AnyDict[] = []
+    for (const url of urls) {
+      diag.attempted_urls.push(url)
+      const res = await fetchJson<AnyDict>(url)
+      if (res.ok && res.data) {
+        items = extractList(res.data, 'contents')
+        if (!items.length) items = extractList(res.data, 'notes')
+        if (items.length) break
+      } else if (res.error) {
+        diag.errors.push(`fetchCreatorNotes ${urlname} page=${page}: ${res.error}`)
+      }
     }
-    const items = listFromData<AnyDict>(result.data, 'contents')
     if (!items.length) break
     out.push(...items)
     await sleep(SLEEP_MS)

@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (!ALLOWED_MODES.has(mode)) return NextResponse.json({ error: 'invalid mode' }, { status: 400 })
   if (!keyword) return NextResponse.json({ error: 'keyword is required' }, { status: 400 })
 
-  const diag: SearchDiagnostics = { attempted_urls: [], errors: [] }
+  const diag: SearchDiagnostics = { attempted_urls: [], errors: [], response_summaries: [] }
 
   let urlnames: string[] = []
   if (mode === 'user') {
@@ -53,6 +53,7 @@ export async function POST(req: Request) {
       matched_urlnames: urlnames.length,
       analyzed_rows: rows.length,
       errors: diag.errors.slice(0, 10),
+      response_summaries: diag.response_summaries.slice(0, 5),
       sample_url: diag.attempted_urls[0] || '',
     },
   })
