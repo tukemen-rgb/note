@@ -1,0 +1,7 @@
+note_analyzer.py
+requirements.txt
+data/
+v0_fixes/
+*.csv
+__pycache__/
+*.pyc
