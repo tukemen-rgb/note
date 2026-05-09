@@ -17,10 +17,16 @@ export type CreatorRow = {
   top_post_title: string;
   top_post_url: string;
   top_post_likes: number;
+  top_post_estimated_views_low: number;
+  top_post_estimated_views: number;
+  top_post_estimated_views_high: number;
   top_post_excerpt: string;
   bottom_post_title: string;
   bottom_post_url: string;
   bottom_post_likes: number;
+  bottom_post_estimated_views_low: number;
+  bottom_post_estimated_views: number;
+  bottom_post_estimated_views_high: number;
   bottom_post_excerpt: string;
 };
 
@@ -121,6 +127,12 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
                 )}
                 <div className="text-xs text-neutral-500">
                   ♥ {r.top_post_likes.toLocaleString()}
+                  {r.top_post_estimated_views > 0 && (
+                    <>
+                      {" "}· 推定view {r.top_post_estimated_views_low.toLocaleString()}〜
+                      {r.top_post_estimated_views_high.toLocaleString()}
+                    </>
+                  )}
                 </div>
               </td>
             </tr>

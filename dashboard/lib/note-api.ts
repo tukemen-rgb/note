@@ -2,6 +2,12 @@ const NOTE_BASE = "https://note.com";
 const USER_AGENT = "kashikin-analytics/0.1";
 const SLEEP_MS = 600;
 
+// View/Like 比の参考レンジ。note公式値ではなく、公開実例から逆算した経験則。
+// data/reference/README.md 参照。
+const EST_VIEWS_LOW = 10;   // 高スキ率寄り (約10%)
+const EST_VIEWS_MID = 20;   // 中央推定 (約5%)
+const EST_VIEWS_HIGH = 33;  // 低スキ率寄り (約3%)
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchJson<T = unknown>(
@@ -184,10 +190,16 @@ export type CreatorRow = {
   top_post_title: string;
   top_post_url: string;
   top_post_likes: number;
+  top_post_estimated_views_low: number;
+  top_post_estimated_views: number;
+  top_post_estimated_views_high: number;
   top_post_excerpt: string;
   bottom_post_title: string;
   bottom_post_url: string;
   bottom_post_likes: number;
+  bottom_post_estimated_views_low: number;
+  bottom_post_estimated_views: number;
+  bottom_post_estimated_views_high: number;
   bottom_post_excerpt: string;
 };
 
@@ -252,10 +264,16 @@ export async function analyzeCreator(
     top_post_title: t.title,
     top_post_url: t.url,
     top_post_likes: t.likes,
+    top_post_estimated_views_low: t.likes * EST_VIEWS_LOW,
+    top_post_estimated_views: t.likes * EST_VIEWS_MID,
+    top_post_estimated_views_high: t.likes * EST_VIEWS_HIGH,
     top_post_excerpt: t.body,
     bottom_post_title: b.title,
     bottom_post_url: b.url,
     bottom_post_likes: b.likes,
+    bottom_post_estimated_views_low: b.likes * EST_VIEWS_LOW,
+    bottom_post_estimated_views: b.likes * EST_VIEWS_MID,
+    bottom_post_estimated_views_high: b.likes * EST_VIEWS_HIGH,
     bottom_post_excerpt: b.body,
   };
 }

@@ -18,7 +18,13 @@ const NUMERIC_FIELDS: (keyof CreatorRow)[] = [
   "avg_likes_in_window",
   "engagement_rate_pct",
   "top_post_likes",
+  "top_post_estimated_views_low",
+  "top_post_estimated_views",
+  "top_post_estimated_views_high",
   "bottom_post_likes",
+  "bottom_post_estimated_views_low",
+  "bottom_post_estimated_views",
+  "bottom_post_estimated_views_high",
 ];
 
 function coerce(row: Record<string, string>): CreatorRow {

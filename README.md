@@ -33,6 +33,10 @@ python note_analyzer.py tag "投資" --max 200 --out tag_invest.csv
 - エンゲージメント率 = 期間内スキ数 ÷ (フォロワー数 × 期間内投稿数) × 100。
 - 最高 / 最低投稿: 公開 API ではビュー数が取れないため、スキ数で代替。
   タイトル・URL・本文 400 字を CSV に出力。
+- 推定ビュー数 (`estimated_views_low / mid / high`): スキ数 × 10 / × 20 / × 33
+  の参考レンジを CSV に出力。**note 公式値ではなく**、公開実例から逆算した
+  経験則です。記事タイプや流入経路で大きく変動します。詳細・出典は
+  [`data/reference/README.md`](data/reference/README.md) を参照。
 - CSV: `utf-8-sig` で出力 (Excel で文字化けしない)。
 - コンソール: 平均値とエンゲージメント率 TOP10 を表示。
 

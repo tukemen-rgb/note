@@ -31,6 +31,12 @@ DEFAULT_SLEEP = 0.6
 DEFAULT_DAYS = 90
 JST = timezone(timedelta(hours=9))
 
+# View/Like 比の参考レンジ。note公式値ではなく、公開実例から逆算した経験則。
+# 詳細は data/reference/README.md を参照。
+EST_VIEWS_LOW = 10   # 高スキ率寄り (約10%)
+EST_VIEWS_MID = 20   # 中央推定 (約5%)
+EST_VIEWS_HIGH = 33  # 低スキ率寄り (約3%)
+
 
 @dataclass
 class CreatorRow:
@@ -48,10 +54,16 @@ class CreatorRow:
     top_post_title: str
     top_post_url: str
     top_post_likes: int
+    top_post_estimated_views_low: int
+    top_post_estimated_views: int
+    top_post_estimated_views_high: int
     top_post_excerpt: str
     bottom_post_title: str
     bottom_post_url: str
     bottom_post_likes: int
+    bottom_post_estimated_views_low: int
+    bottom_post_estimated_views: int
+    bottom_post_estimated_views_high: int
     bottom_post_excerpt: str
 
 
@@ -280,10 +292,16 @@ def analyze_creator(urlname: str, days: int) -> CreatorRow | None:
         top_post_title=top_t,
         top_post_url=top_u,
         top_post_likes=top_l,
+        top_post_estimated_views_low=top_l * EST_VIEWS_LOW,
+        top_post_estimated_views=top_l * EST_VIEWS_MID,
+        top_post_estimated_views_high=top_l * EST_VIEWS_HIGH,
         top_post_excerpt=top_e,
         bottom_post_title=bot_t,
         bottom_post_url=bot_u,
         bottom_post_likes=bot_l,
+        bottom_post_estimated_views_low=bot_l * EST_VIEWS_LOW,
+        bottom_post_estimated_views=bot_l * EST_VIEWS_MID,
+        bottom_post_estimated_views_high=bot_l * EST_VIEWS_HIGH,
         bottom_post_excerpt=bot_e,
     )
 
