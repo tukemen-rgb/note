@@ -1,4 +1,10 @@
-const NOTE_BASE = 'https://note.com'
+import {
+  fetchCreatorByHtml,
+  searchHashtagByHtml,
+  searchNotesByHtml,
+  searchUsersByHtml,
+} from '@/lib/note-html'
+
 const SLEEP_MS = 600
 
 const EST_VIEWS_LOW = 10
@@ -7,86 +13,13 @@ const EST_VIEWS_HIGH = 33
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-function browserHeaders() {
-  return {
-    'User-Agent':
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    Accept: 'application/json, text/plain, */*',
-    'Accept-Language': 'ja,en;q=0.9',
-    Referer: 'https://note.com/',
-    Origin: 'https://note.com',
-    'X-Requested-With': 'XMLHttpRequest',
-  }
+export interface SearchDiagnostics {
+  attempted_urls: string[]
+  errors: string[]
+  response_summaries: string[]
 }
 
-async function fetchJson<T = unknown>(
-  url: string,
-  retries = 2,
-): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
-  let backoff = 1500
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const r = await fetch(url, { headers: browserHeaders(), cache: 'no-store' })
-      if (r.status === 404) return { ok: false, status: 404, data: null }
-      if (r.status === 429 || r.status >= 500) {
-        if (i === retries) return { ok: false, status: r.status, data: null, error: `http ${r.status}` }
-        await sleep(backoff)
-        backoff *= 2
-        continue
-      }
-      if (!r.ok) {
-        const body = await r.text().catch(() => '')
-        return { ok: false, status: r.status, data: null, error: `http ${r.status}: ${body.slice(0, 200)}` }
-      }
-      try {
-        const data = (await r.json()) as T
-        return { ok: true, status: r.status, data }
-      } catch {
-        return { ok: false, status: r.status, data: null, error: 'invalid json' }
-      }
-    } catch (e: any) {
-      if (i === retries) return { ok: false, status: 0, data: null, error: e?.message || 'network' }
-      await sleep(backoff)
-      backoff *= 2
-    }
-  }
-  return { ok: false, status: 0, data: null, error: 'unknown' }
-}
-
-type AnyDict = Record<string, any>
-
-function getValue<T = any>(obj: AnyDict | null | undefined, ...keys: string[]): T | undefined {
-  if (!obj) return undefined
-  for (const k of keys) {
-    if (obj[k] !== undefined && obj[k] !== null) return obj[k] as T
-  }
-  return undefined
-}
-
-// note.com API はバージョンによりレスポンス形式が違うため、複数のパターンを試行する。
-function extractList<T = AnyDict>(payload: AnyDict | null, key: string): T[] {
-  if (!payload) return []
-  const candidates: any[] = [
-    payload?.data?.[key],
-    payload?.data?.[key]?.contents,
-    payload?.[key],
-    payload?.[key]?.contents,
-    payload?.data?.contents,
-    payload?.contents,
-  ]
-  for (const c of candidates) {
-    if (Array.isArray(c)) return c as T[]
-  }
-  return []
-}
-
-function noteUrl(note: AnyDict, urlname?: string): string {
-  const key = getValue<string>(note, 'key', 'note_id', 'id')
-  const user = urlname || getValue<string>(note?.user || {}, 'urlname') || getValue<string>(note, 'urlname')
-  if (user && key) return `${NOTE_BASE}/${user}/n/${key}`
-  if (key) return `${NOTE_BASE}/n/${key}`
-  return ''
-}
+import type { CreatorRow } from '@/lib/analytics/types'
 
 function excerpt(text: string | undefined, n = 400): string {
   if (!text) return ''
@@ -99,236 +32,98 @@ function parseDate(value: string | undefined | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-export interface SearchDiagnostics {
-  attempted_urls: string[]
-  errors: string[]
-  response_summaries: string[]
-}
-
-function summarize(payload: AnyDict | null): string {
-  if (!payload) return 'null'
-  try {
-    const topKeys = Object.keys(payload).slice(0, 8).join(',')
-    const dataKeys = payload.data && typeof payload.data === 'object' ? Object.keys(payload.data).slice(0, 8).join(',') : ''
-    return `top=[${topKeys}] data=[${dataKeys}]`
-  } catch {
-    return 'unknown'
-  }
-}
-
-async function trySearchUsers(keyword: string, page: number, diag: SearchDiagnostics) {
-  const urls = [
-    `${NOTE_BASE}/api/v3/searches?context=user&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
-    `${NOTE_BASE}/api/v2/searches?context=user&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
-  ]
-  for (const url of urls) {
-    diag.attempted_urls.push(url)
-    const res = await fetchJson<AnyDict>(url)
-    if (res.ok && res.data) {
-      diag.response_summaries.push(`users page=${page}: ${summarize(res.data)}`)
-      const users = extractList(res.data, 'users')
-      if (users.length) return users
-    } else if (res.error) {
-      diag.errors.push(`searchUsers page=${page}: ${res.error}`)
-    }
-    await sleep(200)
-  }
-  return [] as AnyDict[]
-}
-
-async function trySearchNotes(keyword: string, page: number, diag: SearchDiagnostics) {
-  const urls = [
-    `${NOTE_BASE}/api/v3/searches?context=note&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
-    `${NOTE_BASE}/api/v2/searches?context=note&q=${encodeURIComponent(keyword)}&page=${page}&size=20`,
-  ]
-  for (const url of urls) {
-    diag.attempted_urls.push(url)
-    const res = await fetchJson<AnyDict>(url)
-    if (res.ok && res.data) {
-      diag.response_summaries.push(`notes page=${page}: ${summarize(res.data)}`)
-      const items = extractList(res.data, 'notes')
-      if (items.length) return items
-    } else if (res.error) {
-      diag.errors.push(`searchNotes page=${page}: ${res.error}`)
-    }
-    await sleep(200)
-  }
-  return [] as AnyDict[]
-}
-
-async function trySearchHashtag(tag: string, page: number, diag: SearchDiagnostics) {
-  const urls = [
-    `${NOTE_BASE}/api/v3/hashtags/${encodeURIComponent(tag)}/notes?page=${page}&size=20`,
-    `${NOTE_BASE}/api/v2/hashtags/${encodeURIComponent(tag)}/notes?page=${page}&size=20`,
-  ]
-  for (const url of urls) {
-    diag.attempted_urls.push(url)
-    const res = await fetchJson<AnyDict>(url)
-    if (res.ok && res.data) {
-      diag.response_summaries.push(`tag page=${page}: ${summarize(res.data)}`)
-      const items = extractList(res.data, 'notes')
-      if (items.length) return items
-    } else if (res.error) {
-      diag.errors.push(`searchHashtag page=${page}: ${res.error}`)
-    }
-    await sleep(200)
-  }
-  return [] as AnyDict[]
-}
-
 export async function searchCreators(keyword: string, max: number, diag: SearchDiagnostics): Promise<string[]> {
-  const out: string[] = []
-  const seen = new Set<string>()
-  let page = 1
-  while (out.length < max && page <= 5) {
-    const users = await trySearchUsers(keyword, page, diag)
-    if (!users.length) break
-    for (const u of users) {
-      const urlname = getValue<string>(u, 'urlname', 'url_name') || getValue<string>(u?.user || {}, 'urlname')
-      if (urlname && !seen.has(urlname)) {
-        seen.add(urlname)
-        out.push(urlname)
-        if (out.length >= max) break
-      }
-    }
-    if (users.length < 20) break
-    page++
-    await sleep(SLEEP_MS)
+  diag.attempted_urls.push(`https://note.com/search?context=user&q=${encodeURIComponent(keyword)}`)
+  const f = await searchUsersByHtml(keyword)
+  if (!f.ok) {
+    diag.errors.push(`searchCreators html: ${f.error || 'unknown'}`)
+    return []
   }
-  return out
+  if (f.result) diag.response_summaries.push(`html users: ${f.result.raw_summary}`)
+  return (f.result?.urlnames || []).slice(0, max)
 }
 
-export async function searchNotes(keyword: string, max: number, diag: SearchDiagnostics): Promise<AnyDict[]> {
-  const out: AnyDict[] = []
-  let page = 1
-  while (out.length < max && page <= 5) {
-    const items = await trySearchNotes(keyword, page, diag)
-    if (!items.length) break
-    out.push(...items)
-    if (items.length < 20) break
-    page++
-    await sleep(SLEEP_MS)
+export async function searchNotes(keyword: string, max: number, diag: SearchDiagnostics) {
+  diag.attempted_urls.push(`https://note.com/search?context=note&q=${encodeURIComponent(keyword)}`)
+  const f = await searchNotesByHtml(keyword)
+  if (!f.ok) {
+    diag.errors.push(`searchNotes html: ${f.error || 'unknown'}`)
+    return [] as { urlname: string; key: string }[]
   }
-  return out.slice(0, max)
+  if (f.result) diag.response_summaries.push(`html notes: ${f.result.raw_summary}`)
+  return (f.result?.notes || []).slice(0, max)
 }
 
-export async function searchHashtag(tag: string, max: number, diag: SearchDiagnostics): Promise<AnyDict[]> {
-  const out: AnyDict[] = []
-  let page = 1
-  while (out.length < max && page <= 5) {
-    const items = await trySearchHashtag(tag, page, diag)
-    if (!items.length) break
-    out.push(...items)
-    if (items.length < 20) break
-    page++
-    await sleep(SLEEP_MS)
+export async function searchHashtag(tag: string, max: number, diag: SearchDiagnostics) {
+  diag.attempted_urls.push(`https://note.com/hashtag/${encodeURIComponent(tag)}`)
+  const f = await searchHashtagByHtml(tag)
+  if (!f.ok) {
+    diag.errors.push(`searchHashtag html: ${f.error || 'unknown'}`)
+    return [] as { urlname: string; key: string }[]
   }
-  return out.slice(0, max)
+  if (f.result) diag.response_summaries.push(`html tag: ${f.result.raw_summary}`)
+  return (f.result?.notes || []).slice(0, max)
 }
 
-export function urlnamesFromNotes(notes: AnyDict[]): string[] {
+export function urlnamesFromNotes(notes: { urlname: string; key: string }[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const n of notes) {
-    const u = getValue<string>(n?.user || {}, 'urlname') || getValue<string>(n, 'urlname')
-    if (u && !seen.has(u)) {
-      seen.add(u)
-      out.push(u)
+    if (n.urlname && !seen.has(n.urlname)) {
+      seen.add(n.urlname)
+      out.push(n.urlname)
     }
   }
   return out
 }
-
-async function fetchCreator(urlname: string, diag: SearchDiagnostics): Promise<AnyDict | null> {
-  const urls = [
-    `${NOTE_BASE}/api/v2/creators/${urlname}`,
-    `${NOTE_BASE}/api/v1/creators/${urlname}`,
-  ]
-  for (const url of urls) {
-    diag.attempted_urls.push(url)
-    const res = await fetchJson<AnyDict>(url)
-    if (res.ok && res.data) return res.data
-    if (res.error) diag.errors.push(`fetchCreator ${urlname}: ${res.error}`)
-  }
-  return null
-}
-
-async function fetchCreatorNotes(urlname: string, diag: SearchDiagnostics, maxPages = 3): Promise<AnyDict[]> {
-  const out: AnyDict[] = []
-  for (let page = 1; page <= maxPages; page++) {
-    const urls = [
-      `${NOTE_BASE}/api/v2/creators/${urlname}/contents?kind=note&page=${page}`,
-      `${NOTE_BASE}/api/v1/creators/${urlname}/notes?page=${page}`,
-    ]
-    let items: AnyDict[] = []
-    for (const url of urls) {
-      diag.attempted_urls.push(url)
-      const res = await fetchJson<AnyDict>(url)
-      if (res.ok && res.data) {
-        items = extractList(res.data, 'contents')
-        if (!items.length) items = extractList(res.data, 'notes')
-        if (items.length) break
-      } else if (res.error) {
-        diag.errors.push(`fetchCreatorNotes ${urlname} page=${page}: ${res.error}`)
-      }
-    }
-    if (!items.length) break
-    out.push(...items)
-    await sleep(SLEEP_MS)
-  }
-  return out
-}
-
-import type { CreatorRow } from '@/lib/analytics/types'
 
 export async function analyzeCreator(urlname: string, days: number, diag: SearchDiagnostics): Promise<CreatorRow | null> {
-  const profileResp = await fetchCreator(urlname, diag)
-  if (!profileResp) return null
-  const p = (profileResp.data || profileResp) as AnyDict
-  const nickname = getValue<string>(p, 'nickname', 'name') || urlname
-  const bio = getValue<string>(p, 'profile', 'description') || ''
-  const followerCount = Number(getValue(p, 'follower_count', 'followerCount') ?? 0)
-  const followingCount = Number(getValue(p, 'following_count', 'followingCount') ?? 0)
-  const noteCount = Number(getValue(p, 'note_count', 'noteCount') ?? 0)
-
-  const notes = await fetchCreatorNotes(urlname, diag)
-  const cutoff = new Date(Date.now() - days * 86_400_000)
-  const recent: AnyDict[] = []
-  for (const n of notes) {
-    const d = parseDate(getValue<string>(n, 'publish_at', 'published_at', 'created_at'))
-    if (d && d >= cutoff) recent.push(n)
+  diag.attempted_urls.push(`https://note.com/${urlname}`)
+  const f = await fetchCreatorByHtml(urlname)
+  if (!f.ok) {
+    diag.errors.push(`analyzeCreator ${urlname}: ${f.error || 'unknown'}`)
+    return null
   }
+  const c = f.creator
+  if (!c) return null
+  diag.response_summaries.push(`html creator ${urlname}: ${c.raw_summary}`)
 
-  const postsInWindow = recent.length
+  const cutoff = new Date(Date.now() - days * 86_400_000)
+  const recent = c.notes.filter((n) => {
+    const d = parseDate(n.publish_at)
+    return d && d >= cutoff
+  })
+  const considered = recent.length ? recent : c.notes // フォールバック: 期間付きが取れないときは全件使う
+
+  const postsInWindow = considered.length
   const postsPerWeek = days ? Number(((postsInWindow / days) * 7).toFixed(2)) : 0
-  const likesList = recent.map((n) => Number(getValue(n, 'like_count', 'likeCount') ?? 0))
-  const totalLikes = likesList.reduce((a, b) => a + b, 0)
+  const totalLikes = considered.reduce((a, n) => a + (n.like_count || 0), 0)
   const avgLikes = postsInWindow ? Number((totalLikes / postsInWindow).toFixed(2)) : 0
   const engagement =
-    followerCount && postsInWindow
-      ? Number(((totalLikes / (followerCount * postsInWindow)) * 100).toFixed(3))
+    c.follower_count && postsInWindow
+      ? Number(((totalLikes / (c.follower_count * postsInWindow)) * 100).toFixed(3))
       : 0
 
-  const sorted = [...recent].sort((a, b) => Number(getValue(b, 'like_count') ?? 0) - Number(getValue(a, 'like_count') ?? 0))
+  const sorted = [...considered].sort((a, b) => b.like_count - a.like_count)
   const top = sorted[0]
   const bottom = sorted[sorted.length - 1]
 
-  const fields = (n: AnyDict | undefined) => ({
-    title: (n && (getValue<string>(n, 'name', 'title') || '')) || '',
-    url: n ? noteUrl(n, urlname) : '',
-    likes: n ? Number(getValue(n, 'like_count') ?? 0) : 0,
-    body: n ? excerpt(getValue<string>(n, 'body', 'description')) : '',
+  const fields = (n: typeof top | undefined) => ({
+    title: n?.title || '',
+    url: n?.url || '',
+    likes: n?.like_count || 0,
+    body: excerpt(n?.body || ''),
   })
   const t = fields(top)
   const b = fields(bottom === top ? undefined : bottom)
 
   return {
     urlname,
-    nickname,
-    profile: excerpt(bio, 200),
-    follower_count: followerCount,
-    following_count: followingCount,
-    note_count: noteCount,
+    nickname: c.nickname,
+    profile: excerpt(c.profile, 200),
+    follower_count: c.follower_count,
+    following_count: c.following_count,
+    note_count: c.note_count,
     posts_in_window: postsInWindow,
     posts_per_week: postsPerWeek,
     total_likes_in_window: totalLikes,
