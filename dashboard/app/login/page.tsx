@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-const DEFAULT_ID = "admin";
-const DEFAULT_PW = "kashikin2026";
+const DEFAULT_ID = "s31747";
+const DEFAULT_PW = "s31747";
 
 export default function LoginPage() {
   const router = useRouter();

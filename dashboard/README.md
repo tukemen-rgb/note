@@ -19,16 +19,27 @@ http://localhost:3000/login → ログイン → ダッシュボード。
 
 ## 認証について
 
-ログインは `NEXT_PUBLIC_LOGIN_ID` / `NEXT_PUBLIC_LOGIN_PASSWORD` を比較するクライアント側ゲートです。`NEXT_PUBLIC_` 付きの環境変数はブラウザに露出するため**簡易用途のみ**。本格運用する場合は NextAuth.js などに差し替えてください。
+ログインは `NEXT_PUBLIC_LOGIN_ID` / `NEXT_PUBLIC_LOGIN_PASSWORD` を比較する
+クライアント側ゲートです。デフォルトは **ID: `s31747` / パスワード: `s31747`**。
+
+`NEXT_PUBLIC_` 付きの環境変数はブラウザに露出するため**簡易用途のみ**で、
+本格運用するなら NextAuth.js などに差し替えてください。
 
 ## デプロイ (Vercel)
 
 ```bash
-npx vercel
+cd dashboard
+npx vercel            # 初回のみ。プロジェクトを作成
+npx vercel --prod     # 本番デプロイ
 ```
 
-その後 Vercel の Project Settings → Environment Variables に
-`NEXT_PUBLIC_LOGIN_ID` と `NEXT_PUBLIC_LOGIN_PASSWORD` を追加。Domains で `kashikin.com` を割り当てれば完成。
+Vercel ダッシュボードの操作:
+
+1. **Settings → Environment Variables** に以下を追加（Production / Preview 両方）
+   - `NEXT_PUBLIC_LOGIN_ID` = `s31747`
+   - `NEXT_PUBLIC_LOGIN_PASSWORD` = `s31747`
+2. **Settings → Domains** に `kashikin.com` を追加し、Vercel が表示する DNS 設定（A レコードまたは CNAME）をドメイン管理側に設定
+3. デプロイ完了後 `https://kashikin.com/login` でログイン
 
 ## API レート / 上限
 
