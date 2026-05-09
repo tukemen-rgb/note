@@ -12,6 +12,7 @@ type Diagnostics = {
   analyzed_rows: number
   errors: string[]
   response_summaries: string[]
+  html_previews: string[]
   sample_url: string
 }
 
@@ -291,6 +292,16 @@ export default function AnalyticsPage() {
                       <ul className="ml-3 list-disc">
                         {diag.response_summaries.map((s, i) => (
                           <li key={i} className="break-all">{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {diag.html_previews.length > 0 && (
+                    <div>
+                      <p>HTML プレビュー:</p>
+                      <ul className="ml-3 list-disc">
+                        {diag.html_previews.map((s, i) => (
+                          <li key={i} className="break-all font-mono">{s}</li>
                         ))}
                       </ul>
                     </div>

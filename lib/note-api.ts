@@ -17,6 +17,7 @@ export interface SearchDiagnostics {
   attempted_urls: string[]
   errors: string[]
   response_summaries: string[]
+  html_previews: string[]
 }
 
 import type { CreatorRow } from '@/lib/analytics/types'
@@ -39,7 +40,10 @@ export async function searchCreators(keyword: string, max: number, diag: SearchD
     diag.errors.push(`searchCreators html: ${f.error || 'unknown'}`)
     return []
   }
-  if (f.result) diag.response_summaries.push(`html users: ${f.result.raw_summary}`)
+  if (f.result) {
+    diag.response_summaries.push(`html users: ${f.result.raw_summary}`)
+    diag.html_previews.push(`users: ${f.result.html_preview}`)
+  }
   return (f.result?.urlnames || []).slice(0, max)
 }
 
@@ -50,7 +54,10 @@ export async function searchNotes(keyword: string, max: number, diag: SearchDiag
     diag.errors.push(`searchNotes html: ${f.error || 'unknown'}`)
     return [] as { urlname: string; key: string }[]
   }
-  if (f.result) diag.response_summaries.push(`html notes: ${f.result.raw_summary}`)
+  if (f.result) {
+    diag.response_summaries.push(`html notes: ${f.result.raw_summary}`)
+    diag.html_previews.push(`notes: ${f.result.html_preview}`)
+  }
   return (f.result?.notes || []).slice(0, max)
 }
 
@@ -61,7 +68,10 @@ export async function searchHashtag(tag: string, max: number, diag: SearchDiagno
     diag.errors.push(`searchHashtag html: ${f.error || 'unknown'}`)
     return [] as { urlname: string; key: string }[]
   }
-  if (f.result) diag.response_summaries.push(`html tag: ${f.result.raw_summary}`)
+  if (f.result) {
+    diag.response_summaries.push(`html tag: ${f.result.raw_summary}`)
+    diag.html_previews.push(`tag: ${f.result.html_preview}`)
+  }
   return (f.result?.notes || []).slice(0, max)
 }
 
@@ -93,7 +103,7 @@ export async function analyzeCreator(urlname: string, days: number, diag: Search
     const d = parseDate(n.publish_at)
     return d && d >= cutoff
   })
-  const considered = recent.length ? recent : c.notes // フォールバック: 期間付きが取れないときは全件使う
+  const considered = recent.length ? recent : c.notes
 
   const postsInWindow = considered.length
   const postsPerWeek = days ? Number(((postsInWindow / days) * 7).toFixed(2)) : 0

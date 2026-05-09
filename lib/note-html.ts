@@ -1,8 +1,3 @@
-// note.com の HTML ページを取得して、
-//   1) Nuxt が埋め込む JSON (__NUXT_DATA__ / window.__NUXT__) からデータ抽出
-//   2) ダメだったら HTML 本文から urlname / ノートキーを正規表現で拾う
-// という 2 段構え。API は 403 で動かないケースのフォールバック。
-
 function browserHtmlHeaders() {
   return {
     'User-Agent':
@@ -34,8 +29,6 @@ export async function fetchHtml(url: string): Promise<HtmlFetchResult> {
   }
 }
 
-// Nuxt 3 スタイルの埋め込み JSON を全部拾う
-// <script type="application/json" id="__NUXT_DATA__">[...]</script>
 function extractNuxtJsonBlocks(html: string): string[] {
   const out: string[] = []
   const re = /<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/gi
@@ -46,33 +39,78 @@ function extractNuxtJsonBlocks(html: string): string[] {
   return out
 }
 
-// HTML 中の "urlname":"xxx" パターンを拾う
+function extractNuxtWindowBlock(html: string): string | null {
+  const m = /window\.__NUXT__\s*=\s*([\s\S]*?)<\/script>/i.exec(html)
+  return m ? m[1] : null
+}
+
 export function urlnamesFromHtml(html: string): string[] {
   const out: string[] = []
   const seen = new Set<string>()
-  const re = /"urlname"\s*:\s*"([A-Za-z0-9_\-]+)"/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html)) !== null) {
-    const u = m[1]
-    if (!seen.has(u)) {
-      seen.add(u)
-      out.push(u)
+  const patterns = [
+    /"urlname"\s*:\s*"([A-Za-z0-9_\-]+)"/g,
+    /\\"urlname\\":\\"([A-Za-z0-9_\-]+)\\"/g,
+    /href="\/([A-Za-z0-9_\-]+)"\s/g,
+  ]
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(html)) !== null) {
+      const u = m[1]
+      if (!seen.has(u) && !RESERVED.has(u)) {
+        seen.add(u)
+        out.push(u)
+      }
     }
   }
   return out
 }
 
-// HTML 中の /<urlname>/n/<key> リンクを拾う (ノート ID)
+const RESERVED = new Set([
+  'search',
+  'hashtag',
+  'login',
+  'signup',
+  'help',
+  'terms',
+  'about',
+  'privacy',
+  'guidelines',
+  'jobs',
+  'pro',
+  'magazines',
+  'notes',
+  'creators',
+  'api',
+  'static',
+  'images',
+  'logo',
+  'membership',
+  'campaign',
+  'plan',
+  'business',
+])
+
 export function noteKeysFromHtml(html: string): { urlname: string; key: string }[] {
   const out: { urlname: string; key: string }[] = []
   const seen = new Set<string>()
-  const re = /\/([A-Za-z0-9_\-]+)\/n\/([a-z0-9]+)/g
+  const patterns = [
+    /\/([A-Za-z0-9_\-]+)\/n\/([A-Za-z0-9]+)/g,
+    /\\"key\\"\s*:\s*\\"([A-Za-z0-9]+)\\"[^}]*?\\"urlname\\":\\"([A-Za-z0-9_\-]+)\\"/g,
+  ]
   let m: RegExpExecArray | null
-  while ((m = re.exec(html)) !== null) {
+  while ((m = patterns[0].exec(html)) !== null) {
+    if (RESERVED.has(m[1])) continue
     const k = `${m[1]}/${m[2]}`
     if (!seen.has(k)) {
       seen.add(k)
       out.push({ urlname: m[1], key: m[2] })
+    }
+  }
+  while ((m = patterns[1].exec(html)) !== null) {
+    const k = `${m[2]}/${m[1]}`
+    if (!seen.has(k)) {
+      seen.add(k)
+      out.push({ urlname: m[2], key: m[1] })
     }
   }
   return out
@@ -83,20 +121,32 @@ export interface HtmlSearchResult {
   urlnames: string[]
   notes: { urlname: string; key: string }[]
   raw_summary: string
+  html_preview: string
 }
 
-// 使用例: searchUsersByHtml("副業")
+function makePreview(html: string): string {
+  const noScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '<script/>')
+  const text = noScripts.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  const slashN = (html.match(/\/n\//g) || []).length
+  const nuxtData = /__NUXT_DATA__/.test(html) ? 'yes' : 'no'
+  const nuxtWindow = /window\.__NUXT__/.test(html) ? 'yes' : 'no'
+  const noteCount = (html.match(/\"note_count\"/g) || []).length
+  return `slashN=${slashN} __NUXT_DATA__=${nuxtData} __NUXT__=${nuxtWindow} noteCountKeys=${noteCount} text_head="${text.slice(0, 220)}"`
+}
+
 export async function searchUsersByHtml(keyword: string): Promise<HtmlFetchResult & { result?: HtmlSearchResult }> {
   const url = `https://note.com/search?context=user&q=${encodeURIComponent(keyword)}`
   const f = await fetchHtml(url)
   if (!f.ok || !f.html) return f
+  const preview = makePreview(f.html)
   const blocks = extractNuxtJsonBlocks(f.html)
-  const combined = blocks.join('\n')
+  const win = extractNuxtWindowBlock(f.html)
+  const combined = blocks.join('\n') + (win || '')
   const fromNuxt = urlnamesFromHtml(combined)
   if (fromNuxt.length) {
     return {
       ...f,
-      result: { source: 'nuxt', urlnames: fromNuxt, notes: [], raw_summary: `nuxt blocks=${blocks.length} urlnames=${fromNuxt.length}` },
+      result: { source: 'nuxt', urlnames: fromNuxt, notes: [], raw_summary: `nuxt blocks=${blocks.length} urlnames=${fromNuxt.length}`, html_preview: preview },
     }
   }
   const fromHtml = urlnamesFromHtml(f.html)
@@ -107,6 +157,7 @@ export async function searchUsersByHtml(keyword: string): Promise<HtmlFetchResul
       urlnames: fromHtml,
       notes: [],
       raw_summary: `nuxt blocks=${blocks.length} regex urlnames=${fromHtml.length} html_len=${f.html.length}`,
+      html_preview: preview,
     },
   }
 }
@@ -115,6 +166,7 @@ export async function searchNotesByHtml(keyword: string): Promise<HtmlFetchResul
   const url = `https://note.com/search?context=note&q=${encodeURIComponent(keyword)}`
   const f = await fetchHtml(url)
   if (!f.ok || !f.html) return f
+  const preview = makePreview(f.html)
   const notes = noteKeysFromHtml(f.html)
   const urlnames = Array.from(new Set(notes.map((n) => n.urlname)))
   return {
@@ -124,6 +176,7 @@ export async function searchNotesByHtml(keyword: string): Promise<HtmlFetchResul
       urlnames,
       notes,
       raw_summary: `regex notes=${notes.length} unique_users=${urlnames.length} html_len=${f.html.length}`,
+      html_preview: preview,
     },
   }
 }
@@ -132,6 +185,7 @@ export async function searchHashtagByHtml(tag: string): Promise<HtmlFetchResult 
   const url = `https://note.com/hashtag/${encodeURIComponent(tag)}`
   const f = await fetchHtml(url)
   if (!f.ok || !f.html) return f
+  const preview = makePreview(f.html)
   const notes = noteKeysFromHtml(f.html)
   const urlnames = Array.from(new Set(notes.map((n) => n.urlname)))
   return {
@@ -141,12 +195,11 @@ export async function searchHashtagByHtml(tag: string): Promise<HtmlFetchResult 
       urlnames,
       notes,
       raw_summary: `regex notes=${notes.length} unique_users=${urlnames.length} html_len=${f.html.length}`,
+      html_preview: preview,
     },
   }
 }
 
-// クリエイター個人ページ (https://note.com/{urlname}) から
-// プロフィール + 最近の投稿を引っ張る
 export interface HtmlCreator {
   urlname: string
   nickname: string
@@ -196,10 +249,10 @@ export async function fetchCreatorByHtml(urlname: string): Promise<HtmlFetchResu
   const followingCount = firstNumber(html, /"following_count"\s*:\s*(\d+)/)
   const noteCount = firstNumber(html, /"note_count"\s*:\s*(\d+)/)
 
-  // ノート一覧を JSON ブロックから拾う
   const blocks = extractNuxtJsonBlocks(html)
-  const combined = blocks.join('\n') + '\n' + html
-  const noteRe = /"key"\s*:\s*"([a-z0-9]+)"[^}]*?"name"\s*:\s*"([^"]*)"[^}]*?"like_count"\s*:\s*(\d+)/g
+  const win = extractNuxtWindowBlock(html)
+  const combined = blocks.join('\n') + (win || '') + '\n' + html
+  const noteRe = /"key"\s*:\s*"([A-Za-z0-9]+)"[^}]*?"name"\s*:\s*"([^"]*)"[^}]*?"like_count"\s*:\s*(\d+)/g
   const notes: HtmlNote[] = []
   const seen = new Set<string>()
   let m: RegExpExecArray | null
@@ -231,7 +284,7 @@ export async function fetchCreatorByHtml(urlname: string): Promise<HtmlFetchResu
       following_count: followingCount,
       note_count: noteCount,
       notes,
-      raw_summary: `nuxt_blocks=${blocks.length} notes_in_html=${notes.length} html_len=${html.length}`,
+      raw_summary: `nuxt_blocks=${blocks.length} __NUXT__=${win ? 'yes' : 'no'} notes_in_html=${notes.length} html_len=${html.length}`,
     },
   }
 }
