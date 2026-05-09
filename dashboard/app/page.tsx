@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import CreatorTable, { CreatorRow } from "@/components/CreatorTable";
 import SummaryCards from "@/components/SummaryCards";
+import { rankRows, RANKING_WEIGHTS_LABEL } from "@/lib/ranking";
 
 type Mode = "user" | "note" | "tag";
 
@@ -103,16 +104,18 @@ export default function Page() {
     }
   }, [router]);
 
+  const ranked = useMemo(() => rankRows(rows), [rows]);
+
   const filtered = useMemo(() => {
-    if (!query) return rows;
+    if (!query) return ranked;
     const q = query.toLowerCase();
-    return rows.filter(
+    return ranked.filter(
       (r) =>
         r.urlname?.toLowerCase().includes(q) ||
         r.nickname?.toLowerCase().includes(q) ||
         r.profile?.toLowerCase().includes(q),
     );
-  }, [rows, query]);
+  }, [ranked, query]);
 
   async function runAnalyze(e: React.FormEvent) {
     e.preventDefault();
@@ -295,9 +298,9 @@ export default function Page() {
           <section className="space-y-3">
             <div className="flex items-end justify-between">
               <div>
-                <h2 className="text-base font-bold">絞り込み</h2>
+                <h2 className="text-base font-bold">アカウント検索</h2>
                 <p className="text-xs text-[var(--muted)]">
-                  ユーザー名・ニックネーム・プロフィール本文を対象に検索します。
+                  下のランキングをユーザー名・ニックネーム・プロフィール本文で絞り込みます。
                 </p>
               </div>
               <button
@@ -311,15 +314,18 @@ export default function Page() {
             <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3">
               <input
                 type="search"
-                placeholder="urlname / nickname / profile で検索"
+                placeholder="例: tanaka / 副業 / プロフィール内のキーワード"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
               />
+              <p className="mt-2 text-[11px] text-[var(--muted)]">
+                総合スコア配点: {RANKING_WEIGHTS_LABEL}
+              </p>
             </div>
           </section>
 
-          <CreatorTable rows={filtered} />
+          <CreatorTable rows={filtered} totalCount={ranked.length} />
         </>
       )}
     </div>

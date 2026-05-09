@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { RankedRow } from "@/lib/ranking";
 
 export type CreatorRow = {
   urlname: string;
@@ -31,6 +32,8 @@ export type CreatorRow = {
 };
 
 type SortKey =
+  | "rank"
+  | "composite_score"
   | "follower_count"
   | "posts_per_week"
   | "engagement_rate_pct"
@@ -38,6 +41,8 @@ type SortKey =
   | "total_likes_in_window";
 
 const SORT_LABEL: Record<SortKey, string> = {
+  rank: "順位",
+  composite_score: "総合スコア",
   follower_count: "フォロワー",
   posts_per_week: "投稿数 / 週",
   avg_likes_in_window: "平均スキ",
@@ -45,9 +50,15 @@ const SORT_LABEL: Record<SortKey, string> = {
   engagement_rate_pct: "エンゲージ率",
 };
 
-export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
-  const [sortKey, setSortKey] = useState<SortKey>("engagement_rate_pct");
-  const [desc, setDesc] = useState(true);
+export default function CreatorTable({
+  rows,
+  totalCount,
+}: {
+  rows: RankedRow[];
+  totalCount: number;
+}) {
+  const [sortKey, setSortKey] = useState<SortKey>("rank");
+  const [desc, setDesc] = useState(false);
 
   const sorted = useMemo(() => {
     const out = [...rows];
@@ -77,7 +88,7 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
             if (active) setDesc((d) => !d);
             else {
               setSortKey(keyName);
-              setDesc(true);
+              setDesc(keyName !== "rank");
             }
           }}
           className={active ? "text-[var(--text)] font-bold" : ""}
@@ -93,20 +104,24 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
     <section className="space-y-3">
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-base font-bold">クリエイター一覧</h2>
+          <h2 className="text-base font-bold">総合ランキング</h2>
           <p className="text-xs text-[var(--muted)]">
             並び替え基準: {SORT_LABEL[sortKey]}（{desc ? "降順" : "昇順"}）
           </p>
         </div>
-        <p className="text-xs text-[var(--muted)]">{sorted.length} 件</p>
+        <p className="text-xs text-[var(--muted)] tabular-nums">
+          {totalCount} 件中 {sorted.length} 件を表示
+        </p>
       </div>
       <div className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--surface)]">
         <table className="min-w-full text-sm">
           <thead className="border-b border-[var(--border)] bg-[#fafaf7] text-xs">
             <tr>
+              <HeaderCell label="順位" keyName="rank" align="right" />
               <th className="px-3 py-2 text-left font-medium text-[var(--muted)]">
                 クリエイター
               </th>
+              <HeaderCell label="総合スコア" keyName="composite_score" />
               <HeaderCell label="フォロワー" keyName="follower_count" />
               <HeaderCell label="投稿数 / 週" keyName="posts_per_week" />
               <HeaderCell label="平均スキ" keyName="avg_likes_in_window" />
@@ -123,6 +138,9 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
                 key={r.urlname}
                 className="border-t border-[var(--border)] align-top"
               >
+                <td className="px-3 py-3 text-right tabular-nums font-bold">
+                  {r.rank}
+                </td>
                 <td className="px-3 py-3">
                   <a
                     href={`https://note.com/${r.urlname}`}
@@ -140,6 +158,9 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
                       {r.profile}
                     </div>
                   )}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums font-bold">
+                  {r.composite_score.toFixed(1)}
                 </td>
                 <td className="px-3 py-3 text-right tabular-nums">
                   {r.follower_count.toLocaleString()}
@@ -186,7 +207,7 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
               <tr>
                 <td
                   className="px-3 py-6 text-center text-sm text-[var(--muted)]"
-                  colSpan={7}
+                  colSpan={9}
                 >
                   該当するクリエイターがありません。
                 </td>
