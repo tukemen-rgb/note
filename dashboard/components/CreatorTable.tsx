@@ -34,7 +34,16 @@ type SortKey =
   | "follower_count"
   | "posts_per_week"
   | "engagement_rate_pct"
-  | "avg_likes_in_window";
+  | "avg_likes_in_window"
+  | "total_likes_in_window";
+
+const SORT_LABEL: Record<SortKey, string> = {
+  follower_count: "フォロワー",
+  posts_per_week: "投稿数 / 週",
+  avg_likes_in_window: "平均スキ",
+  total_likes_in_window: "累計スキ",
+  engagement_rate_pct: "エンゲージ率",
+};
 
 export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("engagement_rate_pct");
@@ -43,102 +52,149 @@ export default function CreatorTable({ rows }: { rows: CreatorRow[] }) {
   const sorted = useMemo(() => {
     const out = [...rows];
     out.sort((a, b) => {
-      const av = a[sortKey] ?? 0;
-      const bv = b[sortKey] ?? 0;
+      const av = Number(a[sortKey]) || 0;
+      const bv = Number(b[sortKey]) || 0;
       return desc ? bv - av : av - bv;
     });
     return out;
   }, [rows, sortKey, desc]);
 
-  function header(label: string, key: SortKey) {
-    const active = key === sortKey;
+  function HeaderCell({
+    label,
+    keyName,
+    align = "right",
+  }: {
+    label: string;
+    keyName: SortKey;
+    align?: "left" | "right";
+  }) {
+    const active = keyName === sortKey;
     return (
-      <button
-        type="button"
-        onClick={() => {
-          if (active) setDesc((d) => !d);
-          else {
-            setSortKey(key);
-            setDesc(true);
-          }
-        }}
-        className={`text-left ${active ? "font-semibold" : "font-medium"}`}
-      >
-        {label}
-        {active ? (desc ? " ▼" : " ▲") : ""}
-      </button>
+      <th className={`px-3 py-2 text-${align} font-medium text-[var(--muted)]`}>
+        <button
+          type="button"
+          onClick={() => {
+            if (active) setDesc((d) => !d);
+            else {
+              setSortKey(keyName);
+              setDesc(true);
+            }
+          }}
+          className={active ? "text-[var(--text)] font-bold" : ""}
+        >
+          {label}
+          {active ? (desc ? " ↓" : " ↑") : ""}
+        </button>
+      </th>
     );
   }
 
   return (
-    <section className="overflow-x-auto rounded-lg border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-      <table className="min-w-full text-sm">
-        <thead className="bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
-          <tr>
-            <th className="px-3 py-2 text-left">creator</th>
-            <th className="px-3 py-2 text-right">{header("followers", "follower_count")}</th>
-            <th className="px-3 py-2 text-right">{header("posts/wk", "posts_per_week")}</th>
-            <th className="px-3 py-2 text-right">{header("avg likes", "avg_likes_in_window")}</th>
-            <th className="px-3 py-2 text-right">{header("eng %", "engagement_rate_pct")}</th>
-            <th className="px-3 py-2 text-left">top post</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => (
-            <tr
-              key={r.urlname}
-              className="border-t border-neutral-200 dark:border-neutral-800"
-            >
-              <td className="px-3 py-2">
-                <a
-                  href={`https://note.com/${r.urlname}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium underline"
-                >
-                  {r.nickname || r.urlname}
-                </a>
-                <div className="text-xs text-neutral-500">@{r.urlname}</div>
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {r.follower_count.toLocaleString()}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {r.posts_per_week.toFixed(2)}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {r.avg_likes_in_window.toFixed(1)}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {r.engagement_rate_pct.toFixed(3)}
-              </td>
-              <td className="px-3 py-2">
-                {r.top_post_url ? (
+    <section className="space-y-3">
+      <div className="flex items-end justify-between">
+        <div>
+          <h2 className="text-base font-bold">クリエイター一覧</h2>
+          <p className="text-xs text-[var(--muted)]">
+            並び替え基準: {SORT_LABEL[sortKey]}（{desc ? "降順" : "昇順"}）
+          </p>
+        </div>
+        <p className="text-xs text-[var(--muted)]">{sorted.length} 件</p>
+      </div>
+      <div className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--surface)]">
+        <table className="min-w-full text-sm">
+          <thead className="border-b border-[var(--border)] bg-[#fafaf7] text-xs">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium text-[var(--muted)]">
+                クリエイター
+              </th>
+              <HeaderCell label="フォロワー" keyName="follower_count" />
+              <HeaderCell label="投稿数 / 週" keyName="posts_per_week" />
+              <HeaderCell label="平均スキ" keyName="avg_likes_in_window" />
+              <HeaderCell label="累計スキ" keyName="total_likes_in_window" />
+              <HeaderCell label="エンゲージ率" keyName="engagement_rate_pct" />
+              <th className="px-3 py-2 text-left font-medium text-[var(--muted)]">
+                最高反応の投稿
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr
+                key={r.urlname}
+                className="border-t border-[var(--border)] align-top"
+              >
+                <td className="px-3 py-3">
                   <a
-                    href={r.top_post_url}
+                    href={`https://note.com/${r.urlname}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="underline"
+                    className="font-medium text-[var(--text)] underline-offset-2 hover:underline"
                   >
-                    {r.top_post_title || "(no title)"}
+                    {r.nickname || r.urlname}
                   </a>
-                ) : (
-                  <span className="text-neutral-500">-</span>
-                )}
-                <div className="text-xs text-neutral-500">
-                  ♥ {r.top_post_likes.toLocaleString()}
-                  {r.top_post_estimated_views > 0 && (
-                    <>
-                      {" "}· 推定view {r.top_post_estimated_views_low.toLocaleString()}〜
-                      {r.top_post_estimated_views_high.toLocaleString()}
-                    </>
+                  <div className="mt-0.5 text-xs text-[var(--muted)]">
+                    @{r.urlname}
+                  </div>
+                  {r.profile && (
+                    <div className="mt-1 line-clamp-2 text-[11px] text-[var(--muted)]">
+                      {r.profile}
+                    </div>
                   )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {r.follower_count.toLocaleString()}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {r.posts_per_week.toFixed(2)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {r.avg_likes_in_window.toFixed(1)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {r.total_likes_in_window.toLocaleString()}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {r.engagement_rate_pct.toFixed(3)}%
+                </td>
+                <td className="px-3 py-3">
+                  {r.top_post_url ? (
+                    <a
+                      href={r.top_post_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[var(--text)] underline-offset-2 hover:underline"
+                    >
+                      {r.top_post_title || "(タイトルなし)"}
+                    </a>
+                  ) : (
+                    <span className="text-[var(--muted)]">—</span>
+                  )}
+                  <div className="mt-1 text-xs text-[var(--muted)] tabular-nums">
+                    スキ {r.top_post_likes.toLocaleString()}
+                    {r.top_post_estimated_views > 0 && (
+                      <>
+                        {" "}/ 推定ビュー{" "}
+                        {r.top_post_estimated_views_low.toLocaleString()}〜
+                        {r.top_post_estimated_views_high.toLocaleString()}
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr>
+                <td
+                  className="px-3 py-6 text-center text-sm text-[var(--muted)]"
+                  colSpan={7}
+                >
+                  該当するクリエイターがありません。
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

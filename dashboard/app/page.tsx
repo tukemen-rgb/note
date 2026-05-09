@@ -8,6 +8,12 @@ import SummaryCards from "@/components/SummaryCards";
 
 type Mode = "user" | "note" | "tag";
 
+const MODE_LABELS: Record<Mode, string> = {
+  user: "プロフィール検索",
+  note: "投稿本文検索",
+  tag: "ハッシュタグ",
+};
+
 const NUMERIC_FIELDS: (keyof CreatorRow)[] = [
   "follower_count",
   "following_count",
@@ -48,18 +54,45 @@ function toCsv(rows: CreatorRow[]): string {
   return "﻿" + lines.join("\n");
 }
 
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "rounded-full border px-3 py-1 text-xs transition " +
+        (active
+          ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-fg)]"
+          : "border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:border-[var(--accent)]")
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Page() {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
+
   const [mode, setMode] = useState<Mode>("user");
   const [keyword, setKeyword] = useState("");
   const [max, setMax] = useState(10);
   const [days, setDays] = useState(90);
   const [running, setRunning] = useState(false);
-  const [rows, setRows] = useState<CreatorRow[]>([]);
-  const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+
+  const [rows, setRows] = useState<CreatorRow[]>([]);
   const [filename, setFilename] = useState("");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -128,6 +161,14 @@ export default function Page() {
     URL.revokeObjectURL(url);
   }
 
+  function resetFilters() {
+    setKeyword("");
+    setMode("user");
+    setMax(10);
+    setDays(90);
+    setQuery("");
+  }
+
   function logout() {
     localStorage.removeItem("kashikin_auth");
     router.replace("/login");
@@ -136,99 +177,148 @@ export default function Page() {
   if (!authChecked) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-neutral-500">
-          サーバ経由で note.com の公開APIを叩きます。CSV取込でも閲覧できます。
-        </p>
-        <button
-          type="button"
-          onClick={logout}
-          className="text-xs text-neutral-500 underline hover:text-neutral-700 dark:hover:text-neutral-300"
-        >
-          ログアウト
-        </button>
-      </div>
-
-      <section className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <form onSubmit={runAnalyze} className="grid gap-3 md:grid-cols-[120px_1fr_100px_100px_auto]">
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as Mode)}
-            className="rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
-          >
-            <option value="user">user (プロフ)</option>
-            <option value="note">note (投稿)</option>
-            <option value="tag">tag (ハッシュタグ)</option>
-          </select>
-          <input
-            type="text"
-            placeholder="キーワード（例: 副業）"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            className="rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
-          />
-          <input
-            type="number"
-            min={1}
-            max={25}
-            value={max}
-            onChange={(e) => setMax(Number(e.target.value))}
-            title="最大クリエイター数 (1-25)"
-            className="rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
-          />
-          <input
-            type="number"
-            min={7}
-            max={365}
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-            title="分析期間 (日)"
-            className="rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
-          />
-          <button
-            type="submit"
-            disabled={running}
-            className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
-          >
-            {running ? "分析中…" : "分析実行"}
-          </button>
-        </form>
-        {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
-      </section>
-
-      <details className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <summary className="cursor-pointer text-sm font-medium">CSVを直接読み込む</summary>
-        <div className="mt-3 space-y-2">
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onFile}
-            className="block w-full text-sm"
-          />
-          {filename && <p className="text-xs text-neutral-500">{filename}</p>}
+    <div className="space-y-8">
+      <section className="space-y-3">
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="text-base font-bold">検索条件</h2>
+            <p className="text-xs text-[var(--muted)]">
+              モード・キーワード・取得件数・分析期間を指定して実行します。
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="text-xs text-[var(--muted)] underline-offset-2 hover:underline"
+            >
+              リセット
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="text-xs text-[var(--muted)] underline-offset-2 hover:underline"
+            >
+              ログアウト
+            </button>
+          </div>
         </div>
-      </details>
+
+        <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-5">
+          <form onSubmit={runAnalyze} className="space-y-5">
+            <div>
+              <p className="mb-2 text-xs text-[var(--muted)]">モード</p>
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
+                  <Chip
+                    key={m}
+                    active={mode === m}
+                    onClick={() => setMode(m)}
+                  >
+                    {MODE_LABELS[m]}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-[1fr_140px_140px_auto]">
+              <label className="block text-sm">
+                <span className="text-xs text-[var(--muted)]">キーワード</span>
+                <input
+                  type="text"
+                  placeholder="例: 副業 / 投資 / 子育て"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  className="mt-1 w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-xs text-[var(--muted)]">取得件数</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={25}
+                  value={max}
+                  onChange={(e) => setMax(Number(e.target.value))}
+                  className="mt-1 w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-xs text-[var(--muted)]">分析期間（日）</span>
+                <input
+                  type="number"
+                  min={7}
+                  max={365}
+                  value={days}
+                  onChange={(e) => setDays(Number(e.target.value))}
+                  className="mt-1 w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={running}
+                className="self-end rounded bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90 disabled:opacity-50"
+              >
+                {running ? "分析中" : "分析を実行"}
+              </button>
+            </div>
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </form>
+        </div>
+
+        <details className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4">
+          <summary className="cursor-pointer text-sm font-medium">
+            CSV を直接読み込む
+          </summary>
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-[var(--muted)]">
+              note_analyzer.py で生成した CSV をアップロードして閲覧できます。
+            </p>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={onFile}
+              className="block w-full text-sm"
+            />
+            {filename && (
+              <p className="text-xs text-[var(--muted)]">読み込み中: {filename}</p>
+            )}
+          </div>
+        </details>
+      </section>
 
       {rows.length > 0 && (
         <>
           <SummaryCards rows={filtered} />
-          <section className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-            <input
-              type="search"
-              placeholder="urlname / nickname / profile で検索"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
-            />
-            <button
-              type="button"
-              onClick={downloadCsv}
-              className="rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700"
-            >
-              CSV保存
-            </button>
+
+          <section className="space-y-3">
+            <div className="flex items-end justify-between">
+              <div>
+                <h2 className="text-base font-bold">絞り込み</h2>
+                <p className="text-xs text-[var(--muted)]">
+                  ユーザー名・ニックネーム・プロフィール本文を対象に検索します。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={downloadCsv}
+                className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text)] hover:border-[var(--accent)]"
+              >
+                CSV を保存
+              </button>
+            </div>
+            <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3">
+              <input
+                type="search"
+                placeholder="urlname / nickname / profile で検索"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+              />
+            </div>
           </section>
+
           <CreatorTable rows={filtered} />
         </>
       )}

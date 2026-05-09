@@ -25,43 +25,48 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[80vh] items-center justify-center">
+    <div className="flex min-h-[70vh] items-center justify-center">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-lg border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
+        className="w-full max-w-sm space-y-5 rounded-md border border-[var(--border)] bg-[var(--surface)] p-7"
       >
         <div>
-          <h2 className="text-lg font-semibold">kashikin analytics</h2>
-          <p className="text-xs text-neutral-500">note.com creator dashboard</p>
+          <p className="text-xs tracking-widest text-[var(--muted)]">
+            KASHIKIN ANALYTICS
+          </p>
+          <h2 className="mt-1 text-lg font-bold">ログイン</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            管理者から付与された ID とパスワードを入力してください。
+          </p>
         </div>
         <label className="block text-sm">
-          <span className="text-neutral-600 dark:text-neutral-400">ユーザーID</span>
+          <span className="text-[var(--muted)]">ユーザーID</span>
           <input
             type="text"
             autoComplete="username"
             value={id}
             onChange={(e) => setId(e.target.value)}
-            className="mt-1 w-full rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+            className="mt-1 w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
         </label>
         <label className="block text-sm">
-          <span className="text-neutral-600 dark:text-neutral-400">パスワード</span>
+          <span className="text-[var(--muted)]">パスワード</span>
           <input
             type="password"
             autoComplete="current-password"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
-            className="mt-1 w-full rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+            className="mt-1 w-full rounded border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
         </label>
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          className="w-full rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+          className="w-full rounded bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90"
         >
           ログイン
         </button>
-        <p className="text-center text-[10px] text-neutral-500">
+        <p className="text-center text-[10px] text-[var(--muted)]">
           Authorized access only
         </p>
       </form>
