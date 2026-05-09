@@ -13,6 +13,7 @@ type Diagnostics = {
   errors: string[]
   response_summaries: string[]
   html_previews: string[]
+  nuxt_previews: string[]
   sample_url: string
 }
 
@@ -288,7 +289,7 @@ export default function AnalyticsPage() {
                   </ul>
                   {diag.response_summaries.length > 0 && (
                     <div>
-                      <p>note.com が返したレスポンスの形:</p>
+                      <p>レスポンスの形:</p>
                       <ul className="ml-3 list-disc">
                         {diag.response_summaries.map((s, i) => (
                           <li key={i} className="break-all">{s}</li>
@@ -301,9 +302,15 @@ export default function AnalyticsPage() {
                       <p>HTML プレビュー:</p>
                       <ul className="ml-3 list-disc">
                         {diag.html_previews.map((s, i) => (
-                          <li key={i} className="break-all font-mono">{s}</li>
+                          <li key={i} className="break-all font-mono text-[10px]">{s}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+                  {diag.nuxt_previews && diag.nuxt_previews.length > 0 && (
+                    <div>
+                      <p>__NUXT__ ブロックの先頭 800字:</p>
+                      <pre className="mt-1 rounded bg-white p-2 text-[10px] font-mono whitespace-pre-wrap break-all">{diag.nuxt_previews[0]}</pre>
                     </div>
                   )}
                   {diag.errors.length > 0 && (

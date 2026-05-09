@@ -18,6 +18,7 @@ export interface SearchDiagnostics {
   errors: string[]
   response_summaries: string[]
   html_previews: string[]
+  nuxt_previews: string[]
 }
 
 import type { CreatorRow } from '@/lib/analytics/types'
@@ -25,12 +26,6 @@ import type { CreatorRow } from '@/lib/analytics/types'
 function excerpt(text: string | undefined, n = 400): string {
   if (!text) return ''
   return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n)
-}
-
-function parseDate(value: string | undefined | null): Date | null {
-  if (!value) return null
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d
 }
 
 export async function searchCreators(keyword: string, max: number, diag: SearchDiagnostics): Promise<string[]> {
@@ -43,6 +38,7 @@ export async function searchCreators(keyword: string, max: number, diag: SearchD
   if (f.result) {
     diag.response_summaries.push(`html users: ${f.result.raw_summary}`)
     diag.html_previews.push(`users: ${f.result.html_preview}`)
+    diag.nuxt_previews.push(`users __NUXT__ head: ${f.result.nuxt_preview}`)
   }
   return (f.result?.urlnames || []).slice(0, max)
 }
@@ -57,6 +53,7 @@ export async function searchNotes(keyword: string, max: number, diag: SearchDiag
   if (f.result) {
     diag.response_summaries.push(`html notes: ${f.result.raw_summary}`)
     diag.html_previews.push(`notes: ${f.result.html_preview}`)
+    diag.nuxt_previews.push(`notes __NUXT__ head: ${f.result.nuxt_preview}`)
   }
   return (f.result?.notes || []).slice(0, max)
 }
@@ -71,6 +68,7 @@ export async function searchHashtag(tag: string, max: number, diag: SearchDiagno
   if (f.result) {
     diag.response_summaries.push(`html tag: ${f.result.raw_summary}`)
     diag.html_previews.push(`tag: ${f.result.html_preview}`)
+    diag.nuxt_previews.push(`tag __NUXT__ head: ${f.result.nuxt_preview}`)
   }
   return (f.result?.notes || []).slice(0, max)
 }
@@ -98,13 +96,7 @@ export async function analyzeCreator(urlname: string, days: number, diag: Search
   if (!c) return null
   diag.response_summaries.push(`html creator ${urlname}: ${c.raw_summary}`)
 
-  const cutoff = new Date(Date.now() - days * 86_400_000)
-  const recent = c.notes.filter((n) => {
-    const d = parseDate(n.publish_at)
-    return d && d >= cutoff
-  })
-  const considered = recent.length ? recent : c.notes
-
+  const considered = c.notes
   const postsInWindow = considered.length
   const postsPerWeek = days ? Number(((postsInWindow / days) * 7).toFixed(2)) : 0
   const totalLikes = considered.reduce((a, n) => a + (n.like_count || 0), 0)

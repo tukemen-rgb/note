@@ -39,24 +39,35 @@ function extractNuxtJsonBlocks(html: string): string[] {
   return out
 }
 
-function extractNuxtWindowBlock(html: string): string | null {
+// window.__NUXT__ の中身を拾う (Nuxt 2 形式, IIFE 可)
+export function extractNuxtWindowBlock(html: string): string | null {
   const m = /window\.__NUXT__\s*=\s*([\s\S]*?)<\/script>/i.exec(html)
   return m ? m[1] : null
 }
 
-export function urlnamesFromHtml(html: string): string[] {
+const RESERVED = new Set([
+  'search', 'hashtag', 'login', 'signup', 'help', 'terms', 'about', 'privacy',
+  'guidelines', 'jobs', 'pro', 'magazines', 'notes', 'creators', 'api',
+  'static', 'images', 'logo', 'membership', 'campaign', 'plan', 'business',
+  'topics', 'topic', 'category', 'tags', 'tag', 'mobile', 'app',
+])
+
+export function urlnamesFromText(text: string): string[] {
   const out: string[] = []
   const seen = new Set<string>()
+  // 複数のパターンを試行
   const patterns = [
-    /"urlname"\s*:\s*"([A-Za-z0-9_\-]+)"/g,
-    /\\"urlname\\":\\"([A-Za-z0-9_\-]+)\\"/g,
-    /href="\/([A-Za-z0-9_\-]+)"\s/g,
+    /"urlname"\s*:\s*"([A-Za-z0-9_\-]+)"/g,    // {"urlname":"xxx"}
+    /urlname\s*:\s*"([A-Za-z0-9_\-]+)"/g,        // {urlname:"xxx"} (キー未クォート)
+    /\\"urlname\\"\s*:\s*\\"([A-Za-z0-9_\-]+)\\"/g, // エスケープされた JSON
+    /href="\/([A-Za-z0-9_\-]+)"/g,                // <a href="/xxx">
+    /\/users\/([A-Za-z0-9_\-]+)/g,
   ]
   for (const re of patterns) {
     let m: RegExpExecArray | null
-    while ((m = re.exec(html)) !== null) {
+    while ((m = re.exec(text)) !== null) {
       const u = m[1]
-      if (!seen.has(u) && !RESERVED.has(u)) {
+      if (!seen.has(u) && !RESERVED.has(u) && u.length > 1) {
         seen.add(u)
         out.push(u)
       }
@@ -65,52 +76,22 @@ export function urlnamesFromHtml(html: string): string[] {
   return out
 }
 
-const RESERVED = new Set([
-  'search',
-  'hashtag',
-  'login',
-  'signup',
-  'help',
-  'terms',
-  'about',
-  'privacy',
-  'guidelines',
-  'jobs',
-  'pro',
-  'magazines',
-  'notes',
-  'creators',
-  'api',
-  'static',
-  'images',
-  'logo',
-  'membership',
-  'campaign',
-  'plan',
-  'business',
-])
-
-export function noteKeysFromHtml(html: string): { urlname: string; key: string }[] {
+export function noteKeysFromText(text: string): { urlname: string; key: string }[] {
   const out: { urlname: string; key: string }[] = []
   const seen = new Set<string>()
   const patterns = [
     /\/([A-Za-z0-9_\-]+)\/n\/([A-Za-z0-9]+)/g,
-    /\\"key\\"\s*:\s*\\"([A-Za-z0-9]+)\\"[^}]*?\\"urlname\\":\\"([A-Za-z0-9_\-]+)\\"/g,
+    /href="https?:\/\/note\.com\/([A-Za-z0-9_\-]+)\/n\/([A-Za-z0-9]+)"/g,
   ]
-  let m: RegExpExecArray | null
-  while ((m = patterns[0].exec(html)) !== null) {
-    if (RESERVED.has(m[1])) continue
-    const k = `${m[1]}/${m[2]}`
-    if (!seen.has(k)) {
-      seen.add(k)
-      out.push({ urlname: m[1], key: m[2] })
-    }
-  }
-  while ((m = patterns[1].exec(html)) !== null) {
-    const k = `${m[2]}/${m[1]}`
-    if (!seen.has(k)) {
-      seen.add(k)
-      out.push({ urlname: m[2], key: m[1] })
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      if (RESERVED.has(m[1])) continue
+      const k = `${m[1]}/${m[2]}`
+      if (!seen.has(k)) {
+        seen.add(k)
+        out.push({ urlname: m[1], key: m[2] })
+      }
     }
   }
   return out
@@ -122,6 +103,7 @@ export interface HtmlSearchResult {
   notes: { urlname: string; key: string }[]
   raw_summary: string
   html_preview: string
+  nuxt_preview: string
 }
 
 function makePreview(html: string): string {
@@ -130,8 +112,16 @@ function makePreview(html: string): string {
   const slashN = (html.match(/\/n\//g) || []).length
   const nuxtData = /__NUXT_DATA__/.test(html) ? 'yes' : 'no'
   const nuxtWindow = /window\.__NUXT__/.test(html) ? 'yes' : 'no'
-  const noteCount = (html.match(/\"note_count\"/g) || []).length
+  const noteCount = (html.match(/"note_count"/g) || []).length
   return `slashN=${slashN} __NUXT_DATA__=${nuxtData} __NUXT__=${nuxtWindow} noteCountKeys=${noteCount} text_head="${text.slice(0, 220)}"`
+}
+
+function nuxtPreview(html: string): string {
+  const block = extractNuxtWindowBlock(html)
+  if (!block) return '(no __NUXT__ block)'
+  // 中身の一部を見せる. URL エンコードされた部分をデコードをしようと試みる
+  const head = block.slice(0, 800)
+  return head
 }
 
 export async function searchUsersByHtml(keyword: string): Promise<HtmlFetchResult & { result?: HtmlSearchResult }> {
@@ -139,25 +129,20 @@ export async function searchUsersByHtml(keyword: string): Promise<HtmlFetchResul
   const f = await fetchHtml(url)
   if (!f.ok || !f.html) return f
   const preview = makePreview(f.html)
+  const nuxt = nuxtPreview(f.html)
   const blocks = extractNuxtJsonBlocks(f.html)
   const win = extractNuxtWindowBlock(f.html)
-  const combined = blocks.join('\n') + (win || '')
-  const fromNuxt = urlnamesFromHtml(combined)
-  if (fromNuxt.length) {
-    return {
-      ...f,
-      result: { source: 'nuxt', urlnames: fromNuxt, notes: [], raw_summary: `nuxt blocks=${blocks.length} urlnames=${fromNuxt.length}`, html_preview: preview },
-    }
-  }
-  const fromHtml = urlnamesFromHtml(f.html)
+  const combined = blocks.join('\n') + (win || '') + '\n' + f.html
+  const urlnames = urlnamesFromText(combined)
   return {
     ...f,
     result: {
-      source: fromHtml.length ? 'regex' : 'none',
-      urlnames: fromHtml,
+      source: urlnames.length ? (win ? 'nuxt' : 'regex') : 'none',
+      urlnames,
       notes: [],
-      raw_summary: `nuxt blocks=${blocks.length} regex urlnames=${fromHtml.length} html_len=${f.html.length}`,
+      raw_summary: `nuxt blocks=${blocks.length} __NUXT__=${win ? 'yes' : 'no'} urlnames=${urlnames.length} html_len=${f.html.length}`,
       html_preview: preview,
+      nuxt_preview: nuxt,
     },
   }
 }
@@ -167,16 +152,21 @@ export async function searchNotesByHtml(keyword: string): Promise<HtmlFetchResul
   const f = await fetchHtml(url)
   if (!f.ok || !f.html) return f
   const preview = makePreview(f.html)
-  const notes = noteKeysFromHtml(f.html)
+  const nuxt = nuxtPreview(f.html)
+  const blocks = extractNuxtJsonBlocks(f.html)
+  const win = extractNuxtWindowBlock(f.html)
+  const combined = blocks.join('\n') + (win || '') + '\n' + f.html
+  const notes = noteKeysFromText(combined)
   const urlnames = Array.from(new Set(notes.map((n) => n.urlname)))
   return {
     ...f,
     result: {
-      source: notes.length ? 'regex' : 'none',
+      source: notes.length ? (win ? 'nuxt' : 'regex') : 'none',
       urlnames,
       notes,
-      raw_summary: `regex notes=${notes.length} unique_users=${urlnames.length} html_len=${f.html.length}`,
+      raw_summary: `nuxt blocks=${blocks.length} __NUXT__=${win ? 'yes' : 'no'} notes=${notes.length} unique_users=${urlnames.length} html_len=${f.html.length}`,
       html_preview: preview,
+      nuxt_preview: nuxt,
     },
   }
 }
@@ -186,16 +176,21 @@ export async function searchHashtagByHtml(tag: string): Promise<HtmlFetchResult 
   const f = await fetchHtml(url)
   if (!f.ok || !f.html) return f
   const preview = makePreview(f.html)
-  const notes = noteKeysFromHtml(f.html)
+  const nuxt = nuxtPreview(f.html)
+  const blocks = extractNuxtJsonBlocks(f.html)
+  const win = extractNuxtWindowBlock(f.html)
+  const combined = blocks.join('\n') + (win || '') + '\n' + f.html
+  const notes = noteKeysFromText(combined)
   const urlnames = Array.from(new Set(notes.map((n) => n.urlname)))
   return {
     ...f,
     result: {
-      source: notes.length ? 'regex' : 'none',
+      source: notes.length ? (win ? 'nuxt' : 'regex') : 'none',
       urlnames,
       notes,
-      raw_summary: `regex notes=${notes.length} unique_users=${urlnames.length} html_len=${f.html.length}`,
+      raw_summary: `nuxt blocks=${blocks.length} __NUXT__=${win ? 'yes' : 'no'} notes=${notes.length} unique_users=${urlnames.length} html_len=${f.html.length}`,
       html_preview: preview,
+      nuxt_preview: nuxt,
     },
   }
 }
@@ -240,19 +235,20 @@ export async function fetchCreatorByHtml(urlname: string): Promise<HtmlFetchResu
   const nickname =
     firstMatch(html, /<meta\s+property="og:title"\s+content="([^"]+)"/i) ||
     firstMatch(html, /"nickname"\s*:\s*"([^"]+)"/) ||
+    firstMatch(html, /nickname\s*:\s*"([^"]+)"/) ||
     urlname
   const profile =
     firstMatch(html, /<meta\s+name="description"\s+content="([^"]+)"/i) ||
     firstMatch(html, /"profile"\s*:\s*"([^"]*)"/) ||
     ''
-  const followerCount = firstNumber(html, /"follower_count"\s*:\s*(\d+)/)
-  const followingCount = firstNumber(html, /"following_count"\s*:\s*(\d+)/)
-  const noteCount = firstNumber(html, /"note_count"\s*:\s*(\d+)/)
+  const followerCount = firstNumber(html, /"follower_count"\s*:\s*(\d+)/) || firstNumber(html, /follower_count\s*:\s*(\d+)/)
+  const followingCount = firstNumber(html, /"following_count"\s*:\s*(\d+)/) || firstNumber(html, /following_count\s*:\s*(\d+)/)
+  const noteCount = firstNumber(html, /"note_count"\s*:\s*(\d+)/) || firstNumber(html, /note_count\s*:\s*(\d+)/)
 
   const blocks = extractNuxtJsonBlocks(html)
   const win = extractNuxtWindowBlock(html)
   const combined = blocks.join('\n') + (win || '') + '\n' + html
-  const noteRe = /"key"\s*:\s*"([A-Za-z0-9]+)"[^}]*?"name"\s*:\s*"([^"]*)"[^}]*?"like_count"\s*:\s*(\d+)/g
+  const noteRe = /(?:"key"|key)\s*:\s*"([A-Za-z0-9]+)"[^}]*?(?:"name"|name)\s*:\s*"([^"]*)"[^}]*?(?:"like_count"|like_count)\s*:\s*(\d+)/g
   const notes: HtmlNote[] = []
   const seen = new Set<string>()
   let m: RegExpExecArray | null
@@ -260,17 +256,13 @@ export async function fetchCreatorByHtml(urlname: string): Promise<HtmlFetchResu
     const key = m[1]
     if (seen.has(key)) continue
     seen.add(key)
-    const title = m[2]
-    const likes = Number(m[3]) || 0
-    const publishM = new RegExp(`"key"\\s*:\\s*"${key}"[^}]*?"publish_at"\\s*:\\s*"([^"]+)"`).exec(combined)
-    const bodyM = new RegExp(`"key"\\s*:\\s*"${key}"[^}]*?"body"\\s*:\\s*"([^"]+)"`).exec(combined)
     notes.push({
       key,
-      title,
+      title: m[2],
       url: `https://note.com/${urlname}/n/${key}`,
-      like_count: likes,
-      body: bodyM ? bodyM[1].slice(0, 500) : '',
-      publish_at: publishM ? publishM[1] : null,
+      like_count: Number(m[3]) || 0,
+      body: '',
+      publish_at: null,
     })
   }
 
@@ -284,7 +276,7 @@ export async function fetchCreatorByHtml(urlname: string): Promise<HtmlFetchResu
       following_count: followingCount,
       note_count: noteCount,
       notes,
-      raw_summary: `nuxt_blocks=${blocks.length} __NUXT__=${win ? 'yes' : 'no'} notes_in_html=${notes.length} html_len=${html.length}`,
+      raw_summary: `nuxt_blocks=${blocks.length} __NUXT__=${win ? 'yes' : 'no'} notes_in_html=${notes.length} html_len=${html.length} followers=${followerCount}`,
     },
   }
 }
