@@ -1,5 +1,4 @@
 const NOTE_BASE = 'https://note.com'
-const USER_AGENT = 'note-analytics/0.1'
 const SLEEP_MS = 600
 
 const EST_VIEWS_LOW = 10
@@ -8,30 +7,47 @@ const EST_VIEWS_HIGH = 33
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function fetchJson<T = unknown>(url: string, retries = 3): Promise<T | null> {
+function browserHeaders() {
+  return {
+    'User-Agent':
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'ja,en;q=0.9',
+    Referer: 'https://note.com/',
+    Origin: 'https://note.com',
+    'X-Requested-With': 'XMLHttpRequest',
+  }
+}
+
+async function fetchJson<T = unknown>(url: string, retries = 2): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
   let backoff = 1500
   for (let i = 0; i <= retries; i++) {
     try {
-      const r = await fetch(url, {
-        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-        cache: 'no-store',
-      })
-      if (r.status === 404) return null
+      const r = await fetch(url, { headers: browserHeaders(), cache: 'no-store' })
+      if (r.status === 404) return { ok: false, status: 404, data: null }
       if (r.status === 429 || r.status >= 500) {
-        if (i === retries) return null
+        if (i === retries) return { ok: false, status: r.status, data: null, error: `http ${r.status}` }
         await sleep(backoff)
         backoff *= 2
         continue
       }
-      if (!r.ok) return null
-      return (await r.json()) as T
-    } catch {
-      if (i === retries) return null
+      if (!r.ok) {
+        const body = await r.text().catch(() => '')
+        return { ok: false, status: r.status, data: null, error: `http ${r.status}: ${body.slice(0, 200)}` }
+      }
+      try {
+        const data = (await r.json()) as T
+        return { ok: true, status: r.status, data }
+      } catch (e) {
+        return { ok: false, status: r.status, data: null, error: 'invalid json' }
+      }
+    } catch (e: any) {
+      if (i === retries) return { ok: false, status: 0, data: null, error: e?.message || 'network' }
       await sleep(backoff)
       backoff *= 2
     }
   }
-  return null
+  return { ok: false, status: 0, data: null, error: 'unknown' }
 }
 
 type AnyDict = Record<string, any>
@@ -71,15 +87,28 @@ function parseDate(value: string | undefined | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-export async function searchCreators(keyword: string, max: number): Promise<string[]> {
+export interface SearchDiagnostics {
+  attempted_urls: string[]
+  errors: string[]
+}
+
+export async function searchCreators(
+  keyword: string,
+  max: number,
+  diag: SearchDiagnostics,
+): Promise<string[]> {
   const out: string[] = []
   const seen = new Set<string>()
   let page = 1
-  while (out.length < max && page <= 10) {
+  while (out.length < max && page <= 5) {
     const url = `${NOTE_BASE}/api/v2/searches?context=user&q=${encodeURIComponent(keyword)}&page=${page}&size=20`
-    const data = await fetchJson<AnyDict>(url)
-    if (!data) break
-    const users = listFromData<AnyDict>(data, 'users')
+    diag.attempted_urls.push(url)
+    const result = await fetchJson<AnyDict>(url)
+    if (!result.ok) {
+      if (result.error) diag.errors.push(`searchCreators page=${page}: ${result.error}`)
+      break
+    }
+    const users = listFromData<AnyDict>(result.data, 'users')
     if (!users.length) break
     for (const u of users) {
       const urlname = getValue<string>(u, 'urlname', 'url_name') || getValue<string>(u?.user || {}, 'urlname')
@@ -96,14 +125,18 @@ export async function searchCreators(keyword: string, max: number): Promise<stri
   return out
 }
 
-export async function searchNotes(keyword: string, max: number): Promise<AnyDict[]> {
+export async function searchNotes(keyword: string, max: number, diag: SearchDiagnostics): Promise<AnyDict[]> {
   const out: AnyDict[] = []
   let page = 1
-  while (out.length < max && page <= 10) {
+  while (out.length < max && page <= 5) {
     const url = `${NOTE_BASE}/api/v2/searches?context=note&q=${encodeURIComponent(keyword)}&page=${page}&size=20`
-    const data = await fetchJson<AnyDict>(url)
-    if (!data) break
-    const items = listFromData<AnyDict>(data, 'notes')
+    diag.attempted_urls.push(url)
+    const result = await fetchJson<AnyDict>(url)
+    if (!result.ok) {
+      if (result.error) diag.errors.push(`searchNotes page=${page}: ${result.error}`)
+      break
+    }
+    const items = listFromData<AnyDict>(result.data, 'notes')
     if (!items.length) break
     out.push(...items)
     if (items.length < 20) break
@@ -113,14 +146,18 @@ export async function searchNotes(keyword: string, max: number): Promise<AnyDict
   return out.slice(0, max)
 }
 
-export async function searchHashtag(tag: string, max: number): Promise<AnyDict[]> {
+export async function searchHashtag(tag: string, max: number, diag: SearchDiagnostics): Promise<AnyDict[]> {
   const out: AnyDict[] = []
   let page = 1
-  while (out.length < max && page <= 10) {
+  while (out.length < max && page <= 5) {
     const url = `${NOTE_BASE}/api/v2/hashtags/${encodeURIComponent(tag)}/notes?page=${page}&size=20`
-    const data = await fetchJson<AnyDict>(url)
-    if (!data) break
-    const items = listFromData<AnyDict>(data, 'notes')
+    diag.attempted_urls.push(url)
+    const result = await fetchJson<AnyDict>(url)
+    if (!result.ok) {
+      if (result.error) diag.errors.push(`searchHashtag page=${page}: ${result.error}`)
+      break
+    }
+    const items = listFromData<AnyDict>(result.data, 'notes')
     if (!items.length) break
     out.push(...items)
     if (items.length < 20) break
@@ -143,17 +180,25 @@ export function urlnamesFromNotes(notes: AnyDict[]): string[] {
   return out
 }
 
-async function fetchCreator(urlname: string): Promise<AnyDict | null> {
-  return await fetchJson<AnyDict>(`${NOTE_BASE}/api/v2/creators/${urlname}`)
+async function fetchCreator(urlname: string, diag: SearchDiagnostics): Promise<AnyDict | null> {
+  const url = `${NOTE_BASE}/api/v2/creators/${urlname}`
+  diag.attempted_urls.push(url)
+  const result = await fetchJson<AnyDict>(url)
+  if (!result.ok && result.error) diag.errors.push(`fetchCreator ${urlname}: ${result.error}`)
+  return result.data
 }
 
-async function fetchCreatorNotes(urlname: string, maxPages = 3): Promise<AnyDict[]> {
+async function fetchCreatorNotes(urlname: string, diag: SearchDiagnostics, maxPages = 3): Promise<AnyDict[]> {
   const out: AnyDict[] = []
   for (let page = 1; page <= maxPages; page++) {
     const url = `${NOTE_BASE}/api/v2/creators/${urlname}/contents?kind=note&page=${page}`
-    const data = await fetchJson<AnyDict>(url)
-    if (!data) break
-    const items = listFromData<AnyDict>(data, 'contents')
+    diag.attempted_urls.push(url)
+    const result = await fetchJson<AnyDict>(url)
+    if (!result.ok) {
+      if (result.error) diag.errors.push(`fetchCreatorNotes ${urlname} page=${page}: ${result.error}`)
+      break
+    }
+    const items = listFromData<AnyDict>(result.data, 'contents')
     if (!items.length) break
     out.push(...items)
     await sleep(SLEEP_MS)
@@ -163,8 +208,8 @@ async function fetchCreatorNotes(urlname: string, maxPages = 3): Promise<AnyDict
 
 import type { CreatorRow } from '@/lib/analytics/types'
 
-export async function analyzeCreator(urlname: string, days: number): Promise<CreatorRow | null> {
-  const profileResp = await fetchCreator(urlname)
+export async function analyzeCreator(urlname: string, days: number, diag: SearchDiagnostics): Promise<CreatorRow | null> {
+  const profileResp = await fetchCreator(urlname, diag)
   if (!profileResp) return null
   const p = (profileResp.data || profileResp) as AnyDict
   const nickname = getValue<string>(p, 'nickname', 'name') || urlname
@@ -173,7 +218,7 @@ export async function analyzeCreator(urlname: string, days: number): Promise<Cre
   const followingCount = Number(getValue(p, 'following_count', 'followingCount') ?? 0)
   const noteCount = Number(getValue(p, 'note_count', 'noteCount') ?? 0)
 
-  const notes = await fetchCreatorNotes(urlname)
+  const notes = await fetchCreatorNotes(urlname, diag)
   const cutoff = new Date(Date.now() - days * 86_400_000)
   const recent: AnyDict[] = []
   for (const n of notes) {
@@ -233,10 +278,10 @@ export async function analyzeCreator(urlname: string, days: number): Promise<Cre
   }
 }
 
-export async function analyzeMany(urlnames: string[], days: number): Promise<CreatorRow[]> {
+export async function analyzeMany(urlnames: string[], days: number, diag: SearchDiagnostics): Promise<CreatorRow[]> {
   const out: CreatorRow[] = []
   for (const u of urlnames) {
-    const row = await analyzeCreator(u, days)
+    const row = await analyzeCreator(u, days, diag)
     if (row) out.push(row)
     await sleep(SLEEP_MS)
   }

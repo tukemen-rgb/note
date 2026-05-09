@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server'
-import { analyzeMany, searchCreators, searchHashtag, searchNotes, urlnamesFromNotes } from '@/lib/note-api'
+import {
+  analyzeMany,
+  searchCreators,
+  searchHashtag,
+  searchNotes,
+  urlnamesFromNotes,
+  type SearchDiagnostics,
+} from '@/lib/note-api'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -22,17 +29,31 @@ export async function POST(req: Request) {
   if (!ALLOWED_MODES.has(mode)) return NextResponse.json({ error: 'invalid mode' }, { status: 400 })
   if (!keyword) return NextResponse.json({ error: 'keyword is required' }, { status: 400 })
 
+  const diag: SearchDiagnostics = { attempted_urls: [], errors: [] }
+
   let urlnames: string[] = []
   if (mode === 'user') {
-    urlnames = await searchCreators(keyword, max)
+    urlnames = await searchCreators(keyword, max, diag)
   } else if (mode === 'note') {
-    const notes = await searchNotes(keyword, max)
+    const notes = await searchNotes(keyword, max, diag)
     urlnames = urlnamesFromNotes(notes).slice(0, max)
   } else {
-    const notes = await searchHashtag(keyword, max)
+    const notes = await searchHashtag(keyword, max, diag)
     urlnames = urlnamesFromNotes(notes).slice(0, max)
   }
 
-  const rows = await analyzeMany(urlnames, days)
-  return NextResponse.json({ mode, keyword, days, rows })
+  const rows = await analyzeMany(urlnames, days, diag)
+
+  return NextResponse.json({
+    mode,
+    keyword,
+    days,
+    rows,
+    diagnostics: {
+      matched_urlnames: urlnames.length,
+      analyzed_rows: rows.length,
+      errors: diag.errors.slice(0, 10),
+      sample_url: diag.attempted_urls[0] || '',
+    },
+  })
 }
