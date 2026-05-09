@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import Papa from "papaparse";
 import CreatorTable, { CreatorRow } from "@/components/CreatorTable";
 import SummaryCards from "@/components/SummaryCards";
@@ -81,9 +80,6 @@ function Chip({
 }
 
 export default function Page() {
-  const router = useRouter();
-  const [authChecked, setAuthChecked] = useState(false);
-
   const [mode, setMode] = useState<Mode>("user");
   const [keyword, setKeyword] = useState("");
   const [max, setMax] = useState(10);
@@ -94,15 +90,6 @@ export default function Page() {
   const [rows, setRows] = useState<CreatorRow[]>([]);
   const [filename, setFilename] = useState("");
   const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (localStorage.getItem("kashikin_auth") !== "1") {
-      router.replace("/login");
-    } else {
-      setAuthChecked(true);
-    }
-  }, [router]);
 
   const ranked = useMemo(() => rankRows(rows), [rows]);
 
@@ -172,13 +159,6 @@ export default function Page() {
     setQuery("");
   }
 
-  function logout() {
-    localStorage.removeItem("kashikin_auth");
-    router.replace("/login");
-  }
-
-  if (!authChecked) return null;
-
   return (
     <div className="space-y-8">
       <section className="space-y-3">
@@ -189,22 +169,13 @@ export default function Page() {
               モード・キーワード・取得件数・分析期間を指定して実行します。
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="text-xs text-[var(--muted)] underline-offset-2 hover:underline"
-            >
-              リセット
-            </button>
-            <button
-              type="button"
-              onClick={logout}
-              className="text-xs text-[var(--muted)] underline-offset-2 hover:underline"
-            >
-              ログアウト
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="text-xs text-[var(--muted)] underline-offset-2 hover:underline"
+          >
+            リセット
+          </button>
         </div>
 
         <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-5">
