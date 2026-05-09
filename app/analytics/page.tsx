@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 import type { CreatorRow } from '@/lib/analytics/types'
 import { rankRows, RANKING_WEIGHTS_LABEL } from '@/lib/ranking'
 
-type Mode = 'user' | 'note' | 'tag'
+type Mode = 'urlnames' | 'user' | 'note' | 'tag'
 
 type Diagnostics = {
   matched_urlnames: number
@@ -18,8 +18,9 @@ type Diagnostics = {
 }
 
 const MODE_LABELS: Record<Mode, string> = {
-  user: 'プロフィール検索',
-  note: '投稿本文検索',
+  urlnames: 'urlname を直接入力',
+  user: 'プロフィール検索 (検索 API ブロック中)',
+  note: '投稿本文検索 (検索 API ブロック中)',
   tag: 'ハッシュタグ',
 }
 
@@ -81,8 +82,9 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 export default function AnalyticsPage() {
-  const [mode, setMode] = useState<Mode>('user')
+  const [mode, setMode] = useState<Mode>('urlnames')
   const [keyword, setKeyword] = useState('')
+  const [urlnamesInput, setUrlnamesInput] = useState('')
   const [max, setMax] = useState(10)
   const [days, setDays] = useState(90)
   const [running, setRunning] = useState(false)
@@ -122,7 +124,8 @@ export default function AnalyticsPage() {
 
   async function runAnalyze(e: React.FormEvent) {
     e.preventDefault()
-    if (!keyword.trim()) return
+    if (mode === 'urlnames' && !urlnamesInput.trim()) return
+    if (mode !== 'urlnames' && !keyword.trim()) return
     setRunning(true)
     setError('')
     setDiag(null)
@@ -130,19 +133,25 @@ export default function AnalyticsPage() {
       const r = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, keyword: keyword.trim(), max, days }),
+        body: JSON.stringify({
+          mode,
+          keyword: keyword.trim(),
+          urlnames: urlnamesInput,
+          max,
+          days,
+        }),
       })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j.error || `http ${r.status}`)
       setRows(j.rows || [])
-      setFilename(`${mode}_${keyword.trim()}`)
+      setFilename(mode === 'urlnames' ? 'urlnames' : `${mode}_${keyword.trim()}`)
       setDiag(j.diagnostics || null)
       if ((j.rows || []).length === 0) {
         const errs = j.diagnostics?.errors || []
         setError(
           errs.length
             ? `note.com からデータを取得できませんでした: ${errs[0]}`
-            : '該当するクリエイターが見つかりませんでした。下の診断ログで note.com が返したレスポンスの形を確認してください。',
+            : '該当するクリエイターが見つかりませんでした。',
         )
       }
     } catch (e: any) {
@@ -176,7 +185,8 @@ export default function AnalyticsPage() {
 
   function resetFilters() {
     setKeyword('')
-    setMode('user')
+    setUrlnamesInput('')
+    setMode('urlnames')
     setMax(10)
     setDays(90)
     setQuery('')
@@ -199,7 +209,7 @@ export default function AnalyticsPage() {
           <p className="text-xs tracking-widest text-[#6b6b6b]">NOTE ANALYTICS</p>
           <h1 className="mt-1 text-2xl font-bold">note クリエイター分析ダッシュボード</h1>
           <p className="mt-1 text-sm text-[#6b6b6b]">
-            note.com の公開情報からアカウント・投稿・ハッシュタグ単位で集計します。
+            note.com の公開ページを SSR スクレイピングしてアカウント・投稿を集計します。
           </p>
         </div>
       </header>
@@ -209,7 +219,9 @@ export default function AnalyticsPage() {
           <div className="flex items-end justify-between">
             <div>
               <h2 className="text-base font-bold">検索条件</h2>
-              <p className="text-xs text-[#6b6b6b]">モードとキーワードを指定して「分析を実行」を押すと note.com から取得します。</p>
+              <p className="text-xs text-[#6b6b6b]">
+                現在 note.com のキーワード検索 API は外部サーバーからブロックされているため、デフォルトで「urlname を直接入力」モードを使うことを推奨します。
+              </p>
             </div>
             <button
               type="button"
@@ -233,47 +245,91 @@ export default function AnalyticsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-[1fr_140px_140px_auto]">
-                <label className="block text-sm">
-                  <span className="text-xs text-[#6b6b6b]">キーワード</span>
-                  <input
-                    type="text"
-                    placeholder="例: 副業 / 投資 / 子育て"
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
-                    className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-xs text-[#6b6b6b]">取得件数 (1-25)</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={25}
-                    value={max}
-                    onChange={(e) => setMax(Number(e.target.value))}
-                    className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="text-xs text-[#6b6b6b]">分析期間 (日)</span>
-                  <input
-                    type="number"
-                    min={7}
-                    max={365}
-                    value={days}
-                    onChange={(e) => setDays(Number(e.target.value))}
-                    className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={running}
-                  className="self-end rounded bg-[#14584c] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-                >
-                  {running ? '分析中' : '分析を実行'}
-                </button>
-              </div>
+              {mode === 'urlnames' ? (
+                <div className="grid gap-4 md:grid-cols-[1fr_140px_auto]">
+                  <label className="block text-sm md:col-span-3">
+                    <span className="text-xs text-[#6b6b6b]">urlname リスト（改行・カンマ・スペース区切り / @ や https://note.com/ は除去されます）</span>
+                    <textarea
+                      placeholder={'例:\nyu_shiro_h\nshirokuro3215\nlush_whale7372\npure_rose25253'}
+                      rows={5}
+                      value={urlnamesInput}
+                      onChange={(e) => setUrlnamesInput(e.target.value)}
+                      className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c] font-mono"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-xs text-[#6b6b6b]">取得件数 (1-25)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={25}
+                      value={max}
+                      onChange={(e) => setMax(Number(e.target.value))}
+                      className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-xs text-[#6b6b6b]">分析期間 (日)</span>
+                    <input
+                      type="number"
+                      min={7}
+                      max={365}
+                      value={days}
+                      onChange={(e) => setDays(Number(e.target.value))}
+                      className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={running}
+                    className="self-end rounded bg-[#14584c] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {running ? '分析中' : '分析を実行'}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-[1fr_140px_140px_auto]">
+                  <label className="block text-sm">
+                    <span className="text-xs text-[#6b6b6b]">キーワード</span>
+                    <input
+                      type="text"
+                      placeholder="例: 副業 / 投資 / 子育て"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-xs text-[#6b6b6b]">取得件数 (1-25)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={25}
+                      value={max}
+                      onChange={(e) => setMax(Number(e.target.value))}
+                      className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-xs text-[#6b6b6b]">分析期間 (日)</span>
+                    <input
+                      type="number"
+                      min={7}
+                      max={365}
+                      value={days}
+                      onChange={(e) => setDays(Number(e.target.value))}
+                      className="mt-1 w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={running}
+                    className="self-end rounded bg-[#14584c] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {running ? '分析中' : '分析を実行'}
+                  </button>
+                </div>
+              )}
 
               {error && (
                 <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
@@ -281,38 +337,12 @@ export default function AnalyticsPage() {
 
               {diag && rows.length === 0 && (
                 <div className="rounded border border-[#e7e5e0] bg-[#fafaf7] p-3 text-xs text-[#6b6b6b] space-y-2">
-                  <p className="font-semibold">診断ログ（スクリーンショットとして共有してください）</p>
+                  <p className="font-semibold">診断ログ</p>
                   <ul className="list-disc pl-4 space-y-1">
                     <li>マッチした urlname: {diag.matched_urlnames}</li>
                     <li>分析できたロウ: {diag.analyzed_rows}</li>
                     {diag.sample_url && <li className="break-all">サンプルURL: {diag.sample_url}</li>}
                   </ul>
-                  {diag.response_summaries.length > 0 && (
-                    <div>
-                      <p>レスポンスの形:</p>
-                      <ul className="ml-3 list-disc">
-                        {diag.response_summaries.map((s, i) => (
-                          <li key={i} className="break-all">{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {diag.html_previews.length > 0 && (
-                    <div>
-                      <p>HTML プレビュー:</p>
-                      <ul className="ml-3 list-disc">
-                        {diag.html_previews.map((s, i) => (
-                          <li key={i} className="break-all font-mono text-[10px]">{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {diag.nuxt_previews && diag.nuxt_previews.length > 0 && (
-                    <div>
-                      <p>__NUXT__ ブロックの先頭 800字:</p>
-                      <pre className="mt-1 rounded bg-white p-2 text-[10px] font-mono whitespace-pre-wrap break-all">{diag.nuxt_previews[0]}</pre>
-                    </div>
-                  )}
                   {diag.errors.length > 0 && (
                     <div>
                       <p>エラー:</p>
@@ -333,9 +363,7 @@ export default function AnalyticsPage() {
               CSV を読み込む（オプション：以前保存したデータを見る用）
             </summary>
             <div className="mt-3 space-y-2">
-              <p className="text-xs text-[#6b6b6b]">
-                このサイトで「CSV を保存」したファイルを、もう一度読み込んで表示させるためのオプションです。通常は上のキーワード検索だけで OKです。
-              </p>
+              <p className="text-xs text-[#6b6b6b]">note_analyzer.py で生成した CSV をアップロードして表示させるためのオプションです。</p>
               <input type="file" accept=".csv,text/csv" onChange={onFile} className="block w-full text-sm" />
               {filename && <p className="text-xs text-[#6b6b6b]">読み込み中: {filename}</p>}
             </div>
@@ -379,7 +407,7 @@ export default function AnalyticsPage() {
             <div className="rounded-md border border-[#e7e5e0] bg-white p-3">
               <input
                 type="search"
-                placeholder="例: tanaka や プロフィール本文のキーワード"
+                placeholder="urlname / nickname / profile で検索"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full rounded border border-[#e7e5e0] bg-white px-3 py-2 text-sm outline-none focus:border-[#14584c]"
@@ -456,7 +484,7 @@ export default function AnalyticsPage() {
         )}
 
         {!summary && !error && (
-          <p className="text-center text-sm text-[#6b6b6b]">キーワードを入力して「分析を実行」を押すと、ここにサマリーとランキングが出ます。</p>
+          <p className="text-center text-sm text-[#6b6b6b]">urlname を入力して「分析を実行」を押してください。</p>
         )}
       </main>
     </div>

@@ -11,10 +11,24 @@ import {
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const ALLOWED_MODES = new Set(['user', 'note', 'tag'])
+const ALLOWED_MODES = new Set(['user', 'note', 'tag', 'urlnames'])
+
+function parseUrlnames(input: string, max: number): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of input.split(/[,\s\n]+/)) {
+    const u = raw.trim().replace(/^@/, '').replace(/^https?:\/\/note\.com\//, '').replace(/\/.*$/, '')
+    if (u && /^[A-Za-z0-9_\-]+$/.test(u) && !seen.has(u)) {
+      seen.add(u)
+      out.push(u)
+      if (out.length >= max) break
+    }
+  }
+  return out
+}
 
 export async function POST(req: Request) {
-  let body: { mode?: string; keyword?: string; max?: number; days?: number }
+  let body: { mode?: string; keyword?: string; urlnames?: string; max?: number; days?: number }
   try {
     body = await req.json()
   } catch {
@@ -27,7 +41,6 @@ export async function POST(req: Request) {
   const days = Math.min(Math.max(Number(body.days) || 90, 7), 365)
 
   if (!ALLOWED_MODES.has(mode)) return NextResponse.json({ error: 'invalid mode' }, { status: 400 })
-  if (!keyword) return NextResponse.json({ error: 'keyword is required' }, { status: 400 })
 
   const diag: SearchDiagnostics = {
     attempted_urls: [],
@@ -38,14 +51,23 @@ export async function POST(req: Request) {
   }
 
   let urlnames: string[] = []
-  if (mode === 'user') {
-    urlnames = await searchCreators(keyword, max, diag)
-  } else if (mode === 'note') {
-    const notes = await searchNotes(keyword, max, diag)
-    urlnames = urlnamesFromNotes(notes).slice(0, max)
+  if (mode === 'urlnames') {
+    const list = body.urlnames || ''
+    urlnames = parseUrlnames(list, max)
+    if (!urlnames.length) {
+      return NextResponse.json({ error: 'urlname list is empty' }, { status: 400 })
+    }
   } else {
-    const notes = await searchHashtag(keyword, max, diag)
-    urlnames = urlnamesFromNotes(notes).slice(0, max)
+    if (!keyword) return NextResponse.json({ error: 'keyword is required' }, { status: 400 })
+    if (mode === 'user') {
+      urlnames = await searchCreators(keyword, max, diag)
+    } else if (mode === 'note') {
+      const notes = await searchNotes(keyword, max, diag)
+      urlnames = urlnamesFromNotes(notes).slice(0, max)
+    } else {
+      const notes = await searchHashtag(keyword, max, diag)
+      urlnames = urlnamesFromNotes(notes).slice(0, max)
+    }
   }
 
   const rows = await analyzeMany(urlnames, days, diag)
