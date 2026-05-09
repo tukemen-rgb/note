@@ -11,6 +11,7 @@ type Diagnostics = {
   matched_urlnames: number
   analyzed_rows: number
   errors: string[]
+  response_summaries: string[]
   sample_url: string
 }
 
@@ -139,7 +140,7 @@ export default function AnalyticsPage() {
         setError(
           errs.length
             ? `note.com からデータを取得できませんでした: ${errs[0]}`
-            : '該当するクリエイターが見つかりませんでした。キーワードを変えて再度お試しください。',
+            : '該当するクリエイターが見つかりませんでした。下の診断ログで note.com が返したレスポンスの形を確認してください。',
         )
       }
     } catch (e: any) {
@@ -273,32 +274,37 @@ export default function AnalyticsPage() {
               </div>
 
               {error && (
-                <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-                  {error}
-                </div>
+                <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
               )}
 
               {diag && rows.length === 0 && (
-                <div className="rounded border border-[#e7e5e0] bg-[#fafaf7] p-3 text-xs text-[#6b6b6b]">
-                  <p>診断ログ:</p>
-                  <ul className="mt-1 list-disc pl-4">
-                    <li>マッチしたurlname: {diag.matched_urlnames}</li>
+                <div className="rounded border border-[#e7e5e0] bg-[#fafaf7] p-3 text-xs text-[#6b6b6b] space-y-2">
+                  <p className="font-semibold">診断ログ（スクリーンショットとして共有してください）</p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>マッチした urlname: {diag.matched_urlnames}</li>
                     <li>分析できたロウ: {diag.analyzed_rows}</li>
-                    {diag.sample_url && <li>サンプルURL: {diag.sample_url}</li>}
-                    {diag.errors.length > 0 && (
-                      <li>
-                        エラー:
-                        <ul className="ml-3 list-disc">
-                          {diag.errors.map((er, i) => (
-                            <li key={i}>{er}</li>
-                          ))}
-                        </ul>
-                      </li>
-                    )}
+                    {diag.sample_url && <li className="break-all">サンプルURL: {diag.sample_url}</li>}
                   </ul>
-                  <p className="mt-2">
-                    note.com が API アクセスをブロックしている可能性があります。下のCSV読み込みを利用するか、時間をあけて再実行してください。
-                  </p>
+                  {diag.response_summaries.length > 0 && (
+                    <div>
+                      <p>note.com が返したレスポンスの形:</p>
+                      <ul className="ml-3 list-disc">
+                        {diag.response_summaries.map((s, i) => (
+                          <li key={i} className="break-all">{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {diag.errors.length > 0 && (
+                    <div>
+                      <p>エラー:</p>
+                      <ul className="ml-3 list-disc">
+                        {diag.errors.map((er, i) => (
+                          <li key={i} className="break-all">{er}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </form>
