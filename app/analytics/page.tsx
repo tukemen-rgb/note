@@ -7,6 +7,13 @@ import { rankRows, RANKING_WEIGHTS_LABEL } from '@/lib/ranking'
 
 type Mode = 'user' | 'note' | 'tag'
 
+type Diagnostics = {
+  matched_urlnames: number
+  analyzed_rows: number
+  errors: string[]
+  sample_url: string
+}
+
 const MODE_LABELS: Record<Mode, string> = {
   user: 'プロフィール検索',
   note: '投稿本文検索',
@@ -77,6 +84,7 @@ export default function AnalyticsPage() {
   const [days, setDays] = useState(90)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
+  const [diag, setDiag] = useState<Diagnostics | null>(null)
   const [rows, setRows] = useState<CreatorRow[]>([])
   const [filename, setFilename] = useState('')
   const [query, setQuery] = useState('')
@@ -114,19 +122,26 @@ export default function AnalyticsPage() {
     if (!keyword.trim()) return
     setRunning(true)
     setError('')
+    setDiag(null)
     try {
       const r = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode, keyword: keyword.trim(), max, days }),
       })
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}))
-        throw new Error(j.error || `http ${r.status}`)
-      }
-      const j = (await r.json()) as { rows: CreatorRow[] }
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error || `http ${r.status}`)
       setRows(j.rows || [])
       setFilename(`${mode}_${keyword.trim()}`)
+      setDiag(j.diagnostics || null)
+      if ((j.rows || []).length === 0) {
+        const errs = j.diagnostics?.errors || []
+        setError(
+          errs.length
+            ? `note.com からデータを取得できませんでした: ${errs[0]}`
+            : '該当するクリエイターが見つかりませんでした。キーワードを変えて再度お試しください。',
+        )
+      }
     } catch (e: any) {
       setError(e?.message || 'failed')
     } finally {
@@ -162,6 +177,8 @@ export default function AnalyticsPage() {
     setMax(10)
     setDays(90)
     setQuery('')
+    setError('')
+    setDiag(null)
   }
 
   return (
@@ -255,20 +272,48 @@ export default function AnalyticsPage() {
                 </button>
               </div>
 
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && (
+                <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              {diag && rows.length === 0 && (
+                <div className="rounded border border-[#e7e5e0] bg-[#fafaf7] p-3 text-xs text-[#6b6b6b]">
+                  <p>診断ログ:</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    <li>マッチしたurlname: {diag.matched_urlnames}</li>
+                    <li>分析できたロウ: {diag.analyzed_rows}</li>
+                    {diag.sample_url && <li>サンプルURL: {diag.sample_url}</li>}
+                    {diag.errors.length > 0 && (
+                      <li>
+                        エラー:
+                        <ul className="ml-3 list-disc">
+                          {diag.errors.map((er, i) => (
+                            <li key={i}>{er}</li>
+                          ))}
+                        </ul>
+                      </li>
+                    )}
+                  </ul>
+                  <p className="mt-2">
+                    note.com が API アクセスをブロックしている可能性があります。下のCSV読み込みを利用するか、時間をあけて再実行してください。
+                  </p>
+                </div>
+              )}
             </form>
           </div>
 
           <details className="rounded-md border border-[#e7e5e0] bg-white p-4">
             <summary className="cursor-pointer text-sm font-medium">
-              CSV を読み込む（隣りのターダウンで以前保存したデータを見る用）
+              CSV を読み込む（オプション：以前保存したデータを見る用）
             </summary>
             <div className="mt-3 space-y-2">
               <p className="text-xs text-[#6b6b6b]">
-                このサイトで以前「CSV を保存」したファイルを、もう一度読み込んでさげるためのオプションです。通常は上のキーワード検索だけで OKです。
+                このサイトで「CSV を保存」したファイルを、もう一度読み込んで表示させるためのオプションです。通常は上のキーワード検索だけで OKです。
               </p>
               <input type="file" accept=".csv,text/csv" onChange={onFile} className="block w-full text-sm" />
-              {filename && <p className="text-xs text-[#6b6b6b]">{filename}</p>}
+              {filename && <p className="text-xs text-[#6b6b6b]">読み込み中: {filename}</p>}
             </div>
           </details>
         </section>
@@ -386,7 +431,7 @@ export default function AnalyticsPage() {
           </section>
         )}
 
-        {!summary && (
+        {!summary && !error && (
           <p className="text-center text-sm text-[#6b6b6b]">キーワードを入力して「分析を実行」を押すと、ここにサマリーとランキングが出ます。</p>
         )}
       </main>
