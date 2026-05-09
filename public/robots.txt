@@ -1,0 +1,13 @@
+# Kashikin - 貸金業務取扱主任者 対策アプリ
+# https://kashikin.app
+
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://kashikin.app/sitemap.xml
+
+# Disallow admin/auth pages from indexing
+Disallow: /auth/
+Disallow: /settings
+Disallow: /api/
