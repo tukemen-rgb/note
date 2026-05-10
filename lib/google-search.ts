@@ -19,8 +19,8 @@ export interface GoogleSearchOutput {
 }
 
 export async function googleSearch(query: string, max: number): Promise<GoogleSearchOutput> {
-  const apiKey = process.env.GOOGLE_API_KEY
-  const cseId = process.env.GOOGLE_CSE_ID
+  const apiKey = process.env.GOOGLE_API_KEY?.trim()
+　const cseId = process.env.GOOGLE_CSE_ID?.trim()
   const out: GoogleSearchOutput = { results: [], errors: [], attempted_queries: [] }
 
   if (!apiKey || !cseId) {
